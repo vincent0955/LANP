@@ -1,0 +1,10 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: insurgency-config
+  namespace: game-servers
+data:
+  # RCON_PASSWORD is stored in the game-secrets Secret, not here.
+  STEAMAPPID: "17700"
+  GAME_MAP: "ministry"
+  GAME_MAXPLAYERS: "16"

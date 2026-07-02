@@ -1,0 +1,20 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: minecraft-service
+  namespace: game-servers
+spec:
+  type: NodePort
+  selector:
+    app: minecraft-server
+  ports:
+    - name: game
+      protocol: TCP
+      port: 25565
+      targetPort: 25565
+      nodePort: 30565
+    - name: rcon
+      protocol: TCP
+      port: 25575
+      targetPort: 25575
+      nodePort: 30575

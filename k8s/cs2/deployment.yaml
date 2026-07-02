@@ -1,0 +1,59 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: cs2-server
+  namespace: game-servers
+  labels:
+    app: cs2-server
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: cs2-server
+  template:
+    metadata:
+      labels:
+        app: cs2-server
+    spec:
+      containers:
+        - name: cs2
+          image: joedwards32/cs2:latest
+          ports:
+            - name: game-udp
+              containerPort: 27015
+              protocol: UDP
+            - name: game-tcp
+              containerPort: 27015
+              protocol: TCP
+            - name: sourcetv
+              containerPort: 27020
+              protocol: UDP
+          envFrom:
+            - configMapRef:
+                name: cs2-config
+          env:
+            - name: SRCDS_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: game-secrets
+                  key: SRCDS_TOKEN
+            - name: CS2_RCONPW
+              valueFrom:
+                secretKeyRef:
+                  name: game-secrets
+                  key: CS2_RCONPW
+          resources:
+            requests:
+              cpu: "1000m"
+              memory: "2Gi"
+            limits:
+              cpu: "4000m"
+              memory: "4Gi"
+          volumeMounts:
+            - name: cs2-data
+              # joedwards32/cs2 uses /home/steam/cs2-dedicated/ as its data directory
+              mountPath: /home/steam/cs2-dedicated
+      volumes:
+        - name: cs2-data
+          persistentVolumeClaim:
+            claimName: cs2-data

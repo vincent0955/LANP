@@ -1,0 +1,18 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: cs2-config
+  namespace: game-servers
+data:
+  # SRCDS_TOKEN and CS2_RCONPW are stored in the game-secrets Secret, not here.
+  CS2_SERVERNAME: "My CS2 Server"
+  CS2_PW: ""
+  CS2_MAXPLAYERS: "16"
+  CS2_STARTMAP: "de_dust2"
+  CS2_MAPGROUP: "mg_active"
+  # casual, competitive, deathmatch
+  CS2_GAMEALIAS: "casual"
+  CS2_LAN: "0"
+  CS2_CHEATS: "0"
+  CS2_LOG: "on"
+  CS2_ADDITIONAL_ARGS: ""

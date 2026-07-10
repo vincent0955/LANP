@@ -1,1 +1,31 @@
 .kiro
+
+# .NET build output
+bin/
+obj/
+
+# .NET user-specific files
+*.user
+*.suo
+
+# Visual Studio / Rider / VS Code
+.vs/
+.vscode/
+.idea/
+*.userprefs
+
+# Test results
+TestResults/
+*.trx
+
+# Stray run logs from local dev/manual testing sessions
+*.log
+*.err
+
+# NuGet
+*.nupkg
+.nuget/
+
+# OS-specific
+.DS_Store
+Thumbs.db

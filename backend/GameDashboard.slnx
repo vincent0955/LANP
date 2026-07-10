@@ -1,0 +1,4 @@
+<Solution>
+  <Project Path="GameDashboard.Api/GameDashboard.Api.csproj" />
+  <Project Path="GameDashboard.Tests/GameDashboard.Tests.csproj" />
+</Solution>

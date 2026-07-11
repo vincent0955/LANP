@@ -39,6 +39,21 @@ public sealed class DashboardOptions
     public bool IsLoopbackBind =>
         System.Net.IPAddress.TryParse(BindAddress, out var ip) && System.Net.IPAddress.IsLoopback(ip);
 
+    /// <summary>
+    /// Browser origins allowed to call the API cross-origin (CORS). Needed by the
+    /// desktop frontend: the Tauri webview serves the UI from http://tauri.localhost
+    /// and the Vite dev server from http://localhost:5173, both of which are
+    /// cross-origin to this backend. CORS is origin gating for browsers only —
+    /// token auth for non-loopback exposure is handled separately by
+    /// TokenAuthMiddleware (Req 14).
+    /// </summary>
+    public IList<string> AllowedCorsOrigins { get; set; } = new List<string>
+    {
+        "http://tauri.localhost",
+        "http://localhost:5173",
+        "http://127.0.0.1:5173",
+    };
+
     public AutoScaleOptions AutoScale { get; set; } = new();
     public MetricsOptions Metrics { get; set; } = new();
 }

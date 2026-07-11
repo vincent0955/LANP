@@ -103,10 +103,10 @@ public sealed partial class RconService : IRconService
                 s.Spec?.Selector != null &&
                 s.Spec.Selector.TryGetValue("app", out var v) && v == appLabel);
 
-            // Prefer a port explicitly named "rcon". Fall back to the primary game
-            // port only for engines where RCON shares the same port as gameplay
-            // (some Source engine configurations); Minecraft and most LinuxGSM
-            // images expose RCON on its own dedicated port named "rcon".
+            // Prefer a port explicitly named "rcon" (Source templates name their
+            // TCP 27015 RCON channel this way since 2026-07-11). The fallback keeps
+            // RCON working for servers deployed before the rename, whose Source TCP
+            // port is still named "game-tcp".
             var rconPort = service?.Spec?.Ports?.FirstOrDefault(p => p.Name == "rcon")?.NodePort
                 ?? service?.Spec?.Ports?.FirstOrDefault(p => p.Name is "game-tcp" or "game")?.NodePort;
             if (rconPort is null)

@@ -69,7 +69,7 @@ public class FailurePathIntegrationTests
     public async Task RconCommand_Returns_ServiceUnavailable_For_Server_Without_Rcon_Configured()
     {
         // Insurgency's curated template has no RCON secret wiring (Phase 3 note:
-        // the vints/LinuxGSM image manages RCON via its own config files), so a
+        // the LinuxGSM image manages RCON via its own config files), so a
         // command against it — if a server named this way happens to not exist —
         // will fail at the "server not found" stage instead. Use a name that is
         // guaranteed not to exist so we exercise the RCON-unreachable path via a

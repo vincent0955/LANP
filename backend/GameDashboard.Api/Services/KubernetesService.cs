@@ -865,48 +865,19 @@ public sealed class KubernetesService : IKubernetesService
     }
 
     /// <summary>
-    /// Status derivation rules (Req 2.3, design.md):
+    /// Status derivation rules (Req 2.3, design.md) — implemented once in
+    /// <see cref="ServerStatusMapper"/>, shared with PodWatchService:
     ///   replicas == 0                        → Stopped
     ///   replicas &gt; 0, no pod found         → Pending
     ///   replicas &gt; 0, pod phase Running
     ///     and all containers ready            → Running
+    ///   replicas &gt; 0, pod phase Running but
+    ///     readiness probe not yet passing      → Pending (first-deploy download)
     ///   replicas &gt; 0, pod phase Pending      → Pending
-    ///   replicas &gt; 0, pod phase Failed/
-    ///     Running-but-not-ready/restarting     → Error
+    ///   replicas &gt; 0, pod phase Failed or a
+    ///     container in a failure/backoff state → Error
     ///   anything else                         → Unknown
     /// </summary>
-    private static ServerStatus MapStatus(int replicas, IReadOnlyList<V1Pod> pods)
-    {
-        if (replicas == 0)
-        {
-            return ServerStatus.Stopped;
-        }
-
-        var pod = pods.FirstOrDefault();
-        if (pod is null)
-        {
-            return ServerStatus.Pending;
-        }
-
-        var phase = pod.Status?.Phase;
-        return phase switch
-        {
-            "Running" => AllContainersReady(pod) ? ServerStatus.Running : ServerStatus.Error,
-            "Pending" => ServerStatus.Pending,
-            "Failed" => ServerStatus.Error,
-            "Succeeded" => ServerStatus.Unknown,
-            _ => ServerStatus.Unknown
-        };
-    }
-
-    private static bool AllContainersReady(V1Pod pod)
-    {
-        var statuses = pod.Status?.ContainerStatuses;
-        if (statuses is null || statuses.Count == 0)
-        {
-            return false;
-        }
-
-        return statuses.All(c => c.Ready);
-    }
+    private static ServerStatus MapStatus(int replicas, IReadOnlyList<V1Pod> pods) =>
+        ServerStatusMapper.Map(replicas, pods.FirstOrDefault());
 }

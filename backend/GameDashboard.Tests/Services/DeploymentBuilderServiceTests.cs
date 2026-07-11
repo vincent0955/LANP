@@ -73,6 +73,33 @@ public class DeploymentBuilderServiceTests
     }
 
     [Fact]
+    public void Build_Adds_Tcp_Readiness_Probe_On_First_Tcp_Port()
+    {
+        var builder = new DeploymentBuilderService();
+        var result = builder.Build(CuratedGameTemplates.Cs2, Request(), NoUsedPorts, Namespace, SecretName);
+
+        // CS2's first (and only) TCP port is rcon 27015 — srcds serves RCON and
+        // gameplay on the same number, so a TCP probe on it means srcds is up.
+        // Status must stay Pending until then (first-deploy downloads, Req 2.4).
+        var probe = result.Deployment.Spec.Template.Spec.Containers[0].ReadinessProbe;
+        Assert.NotNull(probe);
+        Assert.NotNull(probe!.TcpSocket);
+        Assert.Equal("27015", probe.TcpSocket.Port.Value);
+    }
+
+    [Fact]
+    public void Build_Omits_Readiness_Probe_For_Udp_Only_Templates()
+    {
+        var builder = new DeploymentBuilderService();
+        var request = new DeployServerRequest("my-palworld", CuratedGameTemplates.Palworld.ImageTag, null, null);
+        var result = builder.Build(CuratedGameTemplates.Palworld, request, NoUsedPorts, Namespace, SecretName);
+
+        // A TCP probe against a UDP-only server never succeeds and would pin the
+        // status at Pending forever — these templates get no probe.
+        Assert.Null(result.Deployment.Spec.Template.Spec.Containers[0].ReadinessProbe);
+    }
+
+    [Fact]
     public void Build_Wires_Secret_Keys_Via_SecretKeyRef_Not_ConfigMap()
     {
         var builder = new DeploymentBuilderService();

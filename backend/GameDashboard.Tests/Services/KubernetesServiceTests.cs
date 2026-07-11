@@ -76,7 +76,11 @@ public class KubernetesServiceTests
     [Theory]
     [InlineData(0, "Running", true, ServerStatus.Stopped)]
     [InlineData(1, "Running", true, ServerStatus.Running)]
-    [InlineData(1, "Running", false, ServerStatus.Error)]
+    // Running-but-not-ready is a server still starting up (readiness probe not
+    // passing yet — e.g. first-deploy download), not an error. Failure states
+    // (CrashLoopBackOff etc.) are covered in PodWatchServiceStatusMappingTests
+    // against the shared ServerStatusMapper.
+    [InlineData(1, "Running", false, ServerStatus.Pending)]
     [InlineData(1, "Pending", true, ServerStatus.Pending)]
     [InlineData(1, "Failed", true, ServerStatus.Error)]
     public void MapStatus_Follows_Design_Rules(int replicas, string phase, bool containersReady, ServerStatus expected)

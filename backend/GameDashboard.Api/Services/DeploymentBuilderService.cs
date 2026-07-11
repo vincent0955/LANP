@@ -244,7 +244,8 @@ public sealed class DeploymentBuilderService : IDeploymentBuilder
                                         Name = DataVolumeName,
                                         MountPath = template.DataMountPath
                                     }
-                                }
+                                },
+                                ReadinessProbe = BuildReadinessProbe(ports)
                             }
                         },
                         Volumes = new List<V1Volume>
@@ -261,6 +262,32 @@ public sealed class DeploymentBuilderService : IDeploymentBuilder
                     }
                 }
             }
+        };
+    }
+
+    /// <summary>
+    /// TCP readiness probe on the first TCP port, so status stays Pending until the
+    /// game actually listens — on a first deploy that covers the whole in-container
+    /// download (see ServerStatusMapper: Running-but-not-ready maps to Pending).
+    /// UDP-only templates get no probe: a TCP probe against a UDP port never
+    /// succeeds and would pin the server at Pending forever; their status remains
+    /// "container started == Running", as before.
+    /// </summary>
+    private static V1Probe? BuildReadinessProbe(IReadOnlyList<PortMapping> ports)
+    {
+        var tcpPort = ports.FirstOrDefault(p =>
+            string.Equals(p.Protocol, "TCP", StringComparison.OrdinalIgnoreCase));
+        if (tcpPort is null)
+        {
+            return null;
+        }
+
+        return new V1Probe
+        {
+            TcpSocket = new V1TCPSocketAction { Port = tcpPort.ContainerPort },
+            InitialDelaySeconds = 15,
+            PeriodSeconds = 10,
+            FailureThreshold = 3
         };
     }
 

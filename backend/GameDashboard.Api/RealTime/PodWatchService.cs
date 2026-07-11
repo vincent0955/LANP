@@ -166,29 +166,9 @@ public sealed class PodWatchService : BackgroundService
     }
 
     /// <summary>
-    /// Mirrors KubernetesService's status derivation rules so watch-driven events and
-    /// REST reads agree on what "Running"/"Pending"/"Error" mean for the same pod.
+    /// Shared with KubernetesService via ServerStatusMapper so watch-driven events
+    /// and REST reads agree on what "Running"/"Pending"/"Error" mean for the same pod.
     /// </summary>
-    private static ServerStatus MapStatus(int replicas, V1Pod pod)
-    {
-        if (replicas == 0)
-        {
-            return ServerStatus.Stopped;
-        }
-
-        var phase = pod.Status?.Phase;
-        return phase switch
-        {
-            "Running" => AllContainersReady(pod) ? ServerStatus.Running : ServerStatus.Error,
-            "Pending" => ServerStatus.Pending,
-            "Failed" => ServerStatus.Error,
-            _ => ServerStatus.Unknown
-        };
-    }
-
-    private static bool AllContainersReady(V1Pod pod)
-    {
-        var statuses = pod.Status?.ContainerStatuses;
-        return statuses is { Count: > 0 } && statuses.All(c => c.Ready);
-    }
+    private static ServerStatus MapStatus(int replicas, V1Pod pod) =>
+        ServerStatusMapper.Map(replicas, pod);
 }

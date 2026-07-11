@@ -25,7 +25,7 @@ public static class CuratedGameTemplates
         DefaultPorts: new[]
         {
             new TemplatePort("game-udp", "UDP", 27015),
-            new TemplatePort("game-tcp", "TCP", 27015),
+            new TemplatePort("rcon", "TCP", 27015),
             new TemplatePort("sourcetv", "UDP", 27020)
         },
         DefaultResources: new ResourceSpec(
@@ -50,28 +50,28 @@ public static class CuratedGameTemplates
             ["CS2_RCONPW"] = "CS2_RCONPW"
         });
 
+    // Fixed 2026-07-11: previously pointed at gameservermanagers/gameserver:vints,
+    // but LinuxGSM's "vints" shortname is Vintage Story — the correct Insurgency
+    // (2014) shortname is "ins" (dedicated server app 237410, anonymous install).
+    // LinuxGSM configures the game via files under /data, not env vars, hence the
+    // empty DefaultConfig. Not yet verified with a live deploy.
     public static readonly GameTemplate Insurgency = new(
         DisplayName: "Insurgency (2014)",
-        ImageTag: "gameservermanagers/gameserver:vints",
-        SteamAppId: 17700,
+        ImageTag: "gameservermanagers/gameserver:ins",
+        SteamAppId: 237410,
         DataMountPath: "/data",
         DefaultStorageBytes: 15L * 1024 * 1024 * 1024, // 15Gi
         DefaultPorts: new[]
         {
             new TemplatePort("game-udp", "UDP", 27015),
-            new TemplatePort("game-tcp", "TCP", 27015),
+            new TemplatePort("rcon", "TCP", 27015),
             new TemplatePort("sourcetv", "UDP", 27020)
         },
         DefaultResources: new ResourceSpec(
             CpuRequest: "500m", CpuLimit: "2000m",
             MemoryRequest: "1Gi", MemoryLimit: "2Gi"),
-        DefaultConfig: new Dictionary<string, string>
-        {
-            ["STEAMAPPID"] = "17700",
-            ["GAME_MAP"] = "ministry",
-            ["GAME_MAXPLAYERS"] = "16"
-        },
-        // The vints/LinuxGSM image manages RCON via its own config files rather than
+        DefaultConfig: new Dictionary<string, string>(),
+        // The LinuxGSM image manages RCON via its own config files rather than
         // an env var, so there is no secretKeyRef wiring for this template today.
         SecretKeyRefs: new Dictionary<string, string>());
 
@@ -127,7 +127,8 @@ public static class CuratedGameTemplates
     // --- Additional popular LinuxGSM-backed games (Req 11: ~15-game curated catalog) ---
     //
     // These use the shared gameservermanagers/gameserver:{tag} LinuxGSM image, same as
-    // Insurgency's "vints" tag. Each installs its game via steamcmd on first start.
+    // Insurgency's "ins" tag. Each installs its game via anonymous steamcmd on first
+    // start (games that can't install anonymously, like Terraria, use other images).
     // Ports/resources are reasonable defaults for a small personal server; users can
     // override resources per-deployment via DeployServerRequest.
 
@@ -140,7 +141,7 @@ public static class CuratedGameTemplates
         DefaultPorts: new[]
         {
             new TemplatePort("game-udp", "UDP", 27015),
-            new TemplatePort("game-tcp", "TCP", 27015)
+            new TemplatePort("rcon", "TCP", 27015)
         },
         DefaultResources: new ResourceSpec("500m", "2000m", "1Gi", "2Gi"),
         DefaultConfig: new Dictionary<string, string>(),
@@ -205,18 +206,29 @@ public static class CuratedGameTemplates
         DefaultConfig: new Dictionary<string, string>(),
         SecretKeyRefs: new Dictionary<string, string>());
 
+    // Fixed 2026-07-11: the LinuxGSM image can't install Terraria — its server
+    // files are not available via anonymous steamcmd (requires a Steam login that
+    // owns the game). This image runs the official vanilla server binaries from
+    // terraria.org instead: env-driven, auto-creates the world on first boot
+    // (AUTOCREATE: 1=small 2=medium 3=large), single config/world volume.
     public static readonly GameTemplate Terraria = new(
         DisplayName: "Terraria",
-        ImageTag: "gameservermanagers/gameserver:terraria",
+        ImageTag: "passivelemon/terraria-docker:latest",
         SteamAppId: null,
-        DataMountPath: "/data",
+        DataMountPath: "/opt/terraria/config",
         DefaultStorageBytes: 2L * 1024 * 1024 * 1024,
         DefaultPorts: new[]
         {
             new TemplatePort("game", "TCP", 7777)
         },
         DefaultResources: new ResourceSpec("500m", "1000m", "1Gi", "2Gi"),
-        DefaultConfig: new Dictionary<string, string>(),
+        DefaultConfig: new Dictionary<string, string>
+        {
+            ["WORLDNAME"] = "world",
+            ["AUTOCREATE"] = "2",
+            ["MAXPLAYERS"] = "8",
+            ["PASSWORD"] = ""
+        },
         SecretKeyRefs: new Dictionary<string, string>());
 
     public static readonly GameTemplate SevenDaysToDie = new(
@@ -243,7 +255,7 @@ public static class CuratedGameTemplates
         DefaultPorts: new[]
         {
             new TemplatePort("game-udp", "UDP", 27015),
-            new TemplatePort("game-tcp", "TCP", 27015)
+            new TemplatePort("rcon", "TCP", 27015)
         },
         DefaultResources: new ResourceSpec("500m", "2000m", "1Gi", "2Gi"),
         DefaultConfig: new Dictionary<string, string>(),
@@ -258,7 +270,7 @@ public static class CuratedGameTemplates
         DefaultPorts: new[]
         {
             new TemplatePort("game-udp", "UDP", 27015),
-            new TemplatePort("game-tcp", "TCP", 27015)
+            new TemplatePort("rcon", "TCP", 27015)
         },
         DefaultResources: new ResourceSpec("500m", "2000m", "1Gi", "2Gi"),
         DefaultConfig: new Dictionary<string, string>(),
@@ -278,11 +290,18 @@ public static class CuratedGameTemplates
         DefaultConfig: new Dictionary<string, string>(),
         SecretKeyRefs: new Dictionary<string, string>());
 
+    // Fixed 2026-07-11: previously pointed at gameservermanagers/gameserver:vpmc,
+    // but LinuxGSM's "vpmc" shortname is Velocity Proxy MC (a Minecraft proxy),
+    // not V Rising. The V Rising dedicated server is Windows-only, so this image
+    // runs it under Wine; it downloads via anonymous steamcmd (app 1829350).
+    // Mounting the PVC at /mnt/vrising covers both the server-files and
+    // persistentdata subdirectories the image uses. Not yet verified with a live
+    // deploy.
     public static readonly GameTemplate VRising = new(
         DisplayName: "V Rising",
-        ImageTag: "gameservermanagers/gameserver:vpmc",
-        SteamAppId: 1604030,
-        DataMountPath: "/data",
+        ImageTag: "trueosiris/vrising:latest",
+        SteamAppId: 1829350,
+        DataMountPath: "/mnt/vrising",
         DefaultStorageBytes: 10L * 1024 * 1024 * 1024,
         DefaultPorts: new[]
         {
@@ -290,7 +309,11 @@ public static class CuratedGameTemplates
             new TemplatePort("query", "UDP", 9877)
         },
         DefaultResources: new ResourceSpec("1000m", "2000m", "3Gi", "6Gi"),
-        DefaultConfig: new Dictionary<string, string>(),
+        DefaultConfig: new Dictionary<string, string>
+        {
+            ["SERVERNAME"] = "V Rising Server",
+            ["WORLDNAME"] = "world1"
+        },
         SecretKeyRefs: new Dictionary<string, string>());
 
     public static readonly GameTemplate Satisfactory = new(

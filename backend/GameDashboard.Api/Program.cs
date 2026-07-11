@@ -50,6 +50,18 @@ builder.Services.AddControllers()
         options.JsonSerializerOptions.Converters.Add(
             new System.Text.Json.Serialization.JsonStringEnumConverter()));
 
+// --- CORS for the desktop frontend ---
+// The Tauri webview (http://tauri.localhost) and Vite dev server are cross-origin
+// to this backend, so both plain fetches and the SignalR /negotiate handshake need
+// CORS. AllowCredentials + explicit origins (never AllowAnyOrigin) because the
+// SignalR JavaScript client sends credentialed requests.
+builder.Services.AddCors(options =>
+    options.AddDefaultPolicy(policy =>
+        policy.WithOrigins(dashboardOptions.AllowedCorsOrigins.ToArray())
+            .AllowAnyHeader()
+            .AllowAnyMethod()
+            .AllowCredentials()));
+
 // --- Kubernetes connectivity (Phase 2) ---
 builder.Services.AddSingleton<IKubernetesClientFactory, KubernetesClientFactory>();
 builder.Services.AddScoped<IKubernetesService, KubernetesService>();
@@ -63,6 +75,7 @@ builder.Services.AddSignalR()
             new System.Text.Json.Serialization.JsonStringEnumConverter()));
 builder.Services.AddSingleton<ILogStreamManager, LogStreamManager>();
 builder.Services.AddHostedService<PodWatchService>();
+builder.Services.AddHostedService<DownloadProgressService>();
 
 // --- Metrics (Phase 6) ---
 builder.Services.AddSingleton<IMetricsService, MetricsService>();
@@ -70,6 +83,10 @@ builder.Services.AddHostedService<MetricsPushService>();
 
 // --- RCON (Phase 6) ---
 builder.Services.AddSingleton<IRconService, RconService>();
+
+// --- Join addresses (public IP lookup, cached) ---
+builder.Services.AddHttpClient();
+builder.Services.AddSingleton<IPublicIpService, PublicIpService>();
 
 // --- Auto-scaling (Phase 8) ---
 builder.Services.AddHostedService<AutoScaleService>();
@@ -97,6 +114,12 @@ using (var scope = app.Services.CreateScope())
 
 // --- Global exception handling → ProblemDetails (Req 14) ---
 app.UseMiddleware<ExceptionHandlingMiddleware>();
+
+// CORS must run before token auth: preflight OPTIONS requests cannot carry the
+// X-Api-Token header (browsers strip custom headers from preflights), so they
+// must be answered by the CORS middleware, never rejected with a 401.
+app.UseCors();
+
 app.UseMiddleware<TokenAuthMiddleware>();
 
 // Root + health endpoints (full cluster health arrives in Phase 2).

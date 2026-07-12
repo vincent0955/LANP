@@ -11,9 +11,8 @@ import { useDeleteSecretKey, useSetSecrets, useSetupStatus } from "@/api/queries
 import { toastApiError } from "@/lib/errors";
 
 // Secret keys the curated game templates reference via secretKeyRefs
-// (CuratedGameTemplates.cs). Fields start empty (dots placeholder marks a
-// stored value); revealing fetches the value into the field for in-place
-// editing, and only non-empty fields are sent on save.
+// (CuratedGameTemplates.cs). Values are write-only: the backend never exposes
+// them back, so fields always start empty and only non-empty fields are sent.
 const KNOWN_SECRETS: { key: string; label: string; hint: string }[] = [
   {
     key: "SRCDS_TOKEN",
@@ -38,10 +37,7 @@ export function SecretsForm() {
   const setup = useSetupStatus();
   const [values, setValues] = useState<Record<string, string>>({});
   const [custom, setCustom] = useState<{ key: string; value: string }[]>([]);
-  const [visible, setVisible] = useState<Record<string, boolean>>({});
-  // Stored value fetched on reveal, kept to detect edits: hiding an untouched
-  // reveal clears the field so the unchanged value isn't re-sent on save.
-  const [fetched, setFetched] = useState<Record<string, string>>({});
+  const [revealed, setRevealed] = useState<Record<string, string>>({});
   const [revealing, setRevealing] = useState<string | null>(null);
   const [pendingDelete, setPendingDelete] = useState<string | null>(null);
 
@@ -54,30 +50,19 @@ export function SecretsForm() {
   );
 
   const toggleReveal = async (key: string) => {
-    if (visible[key]) {
-      if (key in fetched && (values[key] ?? "") === fetched[key]) {
-        setValues(({ [key]: _, ...rest }) => rest);
-        setFetched(({ [key]: _, ...rest }) => rest);
-      }
-      setVisible((v) => ({ ...v, [key]: false }));
+    if (key in revealed) {
+      setRevealed(({ [key]: _, ...rest }) => rest);
       return;
     }
-    // Empty field for a configured key: pull the stored value into the input
-    // so it can be edited in place. Otherwise just unmask what's typed.
-    if ((values[key] ?? "") === "" && configuredKeys.includes(key)) {
-      setRevealing(key);
-      try {
-        const { value } = await api.getSecretValue(key);
-        setValues((v) => ({ ...v, [key]: value }));
-        setFetched((f) => ({ ...f, [key]: value }));
-      } catch (error) {
-        toastApiError(error);
-        return;
-      } finally {
-        setRevealing(null);
-      }
+    setRevealing(key);
+    try {
+      const { value } = await api.getSecretValue(key);
+      setRevealed((r) => ({ ...r, [key]: value }));
+    } catch (error) {
+      toastApiError(error);
+    } finally {
+      setRevealing(null);
     }
-    setVisible((v) => ({ ...v, [key]: true }));
   };
 
   const removeKey = (key: string) => {
@@ -89,8 +74,7 @@ export function SecretsForm() {
       onSuccess: () => {
         toast.success(`Secret ${key} deleted.`);
         setPendingDelete(null);
-        setVisible(({ [key]: _, ...rest }) => rest);
-        setFetched(({ [key]: _, ...rest }) => rest);
+        setRevealed(({ [key]: _, ...rest }) => rest);
         setValues(({ [key]: _, ...rest }) => rest);
       },
       onError: (error) => {
@@ -107,11 +91,11 @@ export function SecretsForm() {
         variant="ghost"
         size="icon"
         className="size-6"
-        title={visible[key] ? "Hide value" : "Show current value"}
+        title={key in revealed ? "Hide current value" : "Show current value"}
         disabled={revealing === key}
         onClick={() => toggleReveal(key)}
       >
-        {visible[key] ? <EyeOff className="size-4" /> : <Eye className="size-4" />}
+        {key in revealed ? <EyeOff className="size-4" /> : <Eye className="size-4" />}
       </Button>
       {deletable &&
         (pendingDelete === key ? (
@@ -138,20 +122,12 @@ export function SecretsForm() {
     </>
   );
 
-  const secretInput = (key: string) => (
-    <Input
-      id={`secret-${key}`}
-      type={visible[key] ? "text" : "password"}
-      className={visible[key] ? "font-mono" : undefined}
-      placeholder={
-        configuredKeys.includes(key) && !visible[key] && !(values[key] ?? "")
-          ? "••••••••••••"
-          : undefined
-      }
-      value={values[key] ?? ""}
-      onChange={(e) => setValues((v) => ({ ...v, [key]: e.target.value }))}
-    />
-  );
+  const revealedValue = (key: string) =>
+    key in revealed && (
+      <p className="rounded bg-muted px-2 py-1 font-mono text-xs break-all">
+        {revealed[key] === "" ? <span className="italic">(empty)</span> : revealed[key]}
+      </p>
+    );
 
   const save = () => {
     const payload: Record<string, string> = {};
@@ -170,8 +146,6 @@ export function SecretsForm() {
         toast.success("Secrets saved to the cluster.");
         setValues({});
         setCustom([]);
-        setVisible({});
-        setFetched({});
       },
       onError: toastApiError,
     });
@@ -182,8 +156,8 @@ export function SecretsForm() {
       <CardHeader>
         <CardTitle>Secrets</CardTitle>
         <CardDescription>
-          Stored in the cluster's game-secrets Secret. Dots mean a value is already set — click the
-          eye to reveal and edit it in place. Leave a field empty to keep its current value.
+          Stored in the cluster's game-secrets Secret. Values stay hidden until you click the eye
+          to reveal them — leave a field empty to keep its current value.
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
@@ -193,7 +167,13 @@ export function SecretsForm() {
               <Label htmlFor={`secret-${key}`}>{label}</Label>
               {configuredKeys.includes(key) && configuredControls(key, false)}
             </div>
-            {secretInput(key)}
+            {revealedValue(key)}
+            <Input
+              id={`secret-${key}`}
+              type="password"
+              value={values[key] ?? ""}
+              onChange={(e) => setValues((v) => ({ ...v, [key]: e.target.value }))}
+            />
             <p className="text-xs text-muted-foreground">{hint}</p>
           </div>
         ))}
@@ -206,7 +186,13 @@ export function SecretsForm() {
               </Label>
               {configuredControls(key, true)}
             </div>
-            {secretInput(key)}
+            {revealedValue(key)}
+            <Input
+              id={`secret-${key}`}
+              type="password"
+              value={values[key] ?? ""}
+              onChange={(e) => setValues((v) => ({ ...v, [key]: e.target.value }))}
+            />
             <p className="text-xs text-muted-foreground">
               Custom secret — leave empty to keep the current value.
             </p>

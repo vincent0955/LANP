@@ -93,7 +93,15 @@ public class SetupStatusTests
                 It.IsAny<CancellationToken>()))
             .ReturnsAsync(new HttpOperationResponse<V1Secret>
             {
-                Body = new V1Secret { Metadata = new V1ObjectMeta { Name = SecretName } }
+                Body = new V1Secret
+                {
+                    Metadata = new V1ObjectMeta { Name = SecretName },
+                    Data = new Dictionary<string, byte[]>
+                    {
+                        ["SRCDS_TOKEN"] = [1],
+                        ["MY_CUSTOM_KEY"] = [2]
+                    }
+                }
             });
 
         var status = await service.GetSetupStatusAsync(CancellationToken.None);
@@ -103,6 +111,9 @@ public class SetupStatusTests
         Assert.True(status.NamespaceReady);
         Assert.True(status.MetricsServerPresent);
         Assert.True(status.SecretsConfigured);
+        // Key names (and only key names) are surfaced, sorted, so the UI can
+        // list configured secrets — including custom ones (Req 13.3).
+        Assert.Equal(new[] { "MY_CUSTOM_KEY", "SRCDS_TOKEN" }, status.ConfiguredSecretKeys);
         Assert.Empty(status.Warnings);
     }
 
@@ -140,6 +151,7 @@ public class SetupStatusTests
         Assert.True(status.ClusterReachable);
         Assert.True(status.NamespaceReady);
         Assert.False(status.SecretsConfigured);
+        Assert.Empty(status.ConfiguredSecretKeys);
         Assert.Contains(status.Warnings, w => w.Contains("secrets", StringComparison.OrdinalIgnoreCase));
     }
 
@@ -208,6 +220,94 @@ public class SetupStatusTests
         var exception = await Record.ExceptionAsync(() => service.GetSetupStatusAsync(CancellationToken.None));
 
         Assert.Null(exception);
+    }
+
+    private static void SetupSecretRead(Mock<IKubernetes> client, Dictionary<string, byte[]> data)
+    {
+        client.Setup(c => c.CoreV1.ReadNamespacedSecretWithHttpMessagesAsync(
+                SecretName, Namespace, It.IsAny<bool?>(),
+                It.IsAny<IReadOnlyDictionary<string, IReadOnlyList<string>>>(),
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new HttpOperationResponse<V1Secret>
+            {
+                Body = new V1Secret
+                {
+                    Metadata = new V1ObjectMeta { Name = SecretName },
+                    Data = data
+                }
+            });
+    }
+
+    [Fact]
+    public async Task GetSecretValueAsync_Returns_Decoded_Value()
+    {
+        var (service, client, _) = CreateWithReachableCluster();
+        SetupSecretRead(client, new Dictionary<string, byte[]>
+        {
+            ["MY_KEY"] = System.Text.Encoding.UTF8.GetBytes("hunter2")
+        });
+
+        var value = await service.GetSecretValueAsync("MY_KEY", CancellationToken.None);
+
+        Assert.Equal("hunter2", value);
+    }
+
+    [Fact]
+    public async Task GetSecretValueAsync_Throws_KeyNotFound_When_Key_Missing()
+    {
+        var (service, client, _) = CreateWithReachableCluster();
+        SetupSecretRead(client, new Dictionary<string, byte[]>());
+
+        await Assert.ThrowsAsync<KeyNotFoundException>(
+            () => service.GetSecretValueAsync("NOPE", CancellationToken.None));
+    }
+
+    [Fact]
+    public async Task DeleteSecretKeyAsync_Removes_Key_And_Replaces_Secret()
+    {
+        var (service, client, _) = CreateWithReachableCluster();
+        SetupSecretRead(client, new Dictionary<string, byte[]>
+        {
+            ["CUSTOM_KEY"] = [1],
+            ["OTHER_KEY"] = [2]
+        });
+
+        V1Secret? replaced = null;
+        client.Setup(c => c.CoreV1.ReplaceNamespacedSecretWithHttpMessagesAsync(
+                It.IsAny<V1Secret>(), SecretName, Namespace,
+                It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<bool?>(),
+                It.IsAny<IReadOnlyDictionary<string, IReadOnlyList<string>>>(),
+                It.IsAny<CancellationToken>()))
+            .Callback((V1Secret body, string _, string _, string _, string _, string _, bool? _,
+                IReadOnlyDictionary<string, IReadOnlyList<string>> _, CancellationToken _) => replaced = body)
+            .ReturnsAsync(new HttpOperationResponse<V1Secret> { Body = new V1Secret() });
+
+        await service.DeleteSecretKeyAsync("CUSTOM_KEY", CancellationToken.None);
+
+        Assert.NotNull(replaced);
+        Assert.False(replaced!.Data.ContainsKey("CUSTOM_KEY"));
+        Assert.True(replaced.Data.ContainsKey("OTHER_KEY"));
+    }
+
+    [Fact]
+    public async Task DeleteSecretKeyAsync_Throws_KeyNotFound_When_Key_Missing()
+    {
+        var (service, client, _) = CreateWithReachableCluster();
+        SetupSecretRead(client, new Dictionary<string, byte[]>());
+
+        await Assert.ThrowsAsync<KeyNotFoundException>(
+            () => service.DeleteSecretKeyAsync("NOPE", CancellationToken.None));
+    }
+
+    [Fact]
+    public async Task DeleteSecretKeyAsync_Rejects_Template_Referenced_Keys()
+    {
+        var (service, _, _) = CreateWithReachableCluster();
+
+        // SRCDS_TOKEN is wired into the CS2 template's secretKeyRefs; deleting it
+        // must be refused (409) even though it exists in the Secret.
+        await Assert.ThrowsAsync<InvalidOperationException>(
+            () => service.DeleteSecretKeyAsync("SRCDS_TOKEN", CancellationToken.None));
     }
 
     [Fact]

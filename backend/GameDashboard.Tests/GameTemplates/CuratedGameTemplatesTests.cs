@@ -89,9 +89,9 @@ public class CuratedGameTemplatesTests
     }
 
     [Fact]
-    public void All_Catalog_Is_Keyed_By_ImageTag_With_Fifteen_Entries()
+    public void All_Catalog_Is_Keyed_By_ImageTag_With_TwentyOne_Entries()
     {
-        Assert.Equal(15, CuratedGameTemplates.All.Count);
+        Assert.Equal(21, CuratedGameTemplates.All.Count);
         Assert.Same(CuratedGameTemplates.Cs2, CuratedGameTemplates.All[CuratedGameTemplates.Cs2.ImageTag]);
         Assert.Same(CuratedGameTemplates.Insurgency, CuratedGameTemplates.All[CuratedGameTemplates.Insurgency.ImageTag]);
         Assert.Same(CuratedGameTemplates.Minecraft, CuratedGameTemplates.All[CuratedGameTemplates.Minecraft.ImageTag]);

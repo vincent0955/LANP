@@ -192,6 +192,7 @@ public sealed class KubernetesService : IKubernetesService
                 NamespaceReady: false,
                 MetricsServerPresent: false,
                 SecretsConfigured: false,
+                ConfiguredSecretKeys: Array.Empty<string>(),
                 Warnings: warnings);
         }
 
@@ -229,15 +230,20 @@ public sealed class KubernetesService : IKubernetesService
         }
 
         // game-secrets Secret (Req 13.4: optional at startup, but needed for CS2
-        // public listing / RCON — existence check only, never read the contents).
+        // public listing / RCON). Only key names are reported so the UI can show
+        // what is configured — values are never exposed (Req 13.3, Req 14.3).
         var secretsConfigured = false;
+        IReadOnlyList<string> configuredSecretKeys = Array.Empty<string>();
         if (clusterReachable)
         {
             try
             {
-                await client!.CoreV1.ReadNamespacedSecretAsync(
+                var secret = await client!.CoreV1.ReadNamespacedSecretAsync(
                     _options.SecretName, _options.Namespace, cancellationToken: ct);
                 secretsConfigured = true;
+                configuredSecretKeys = secret.Data?.Keys
+                    .OrderBy(k => k, StringComparer.Ordinal)
+                    .ToList() ?? (IReadOnlyList<string>)Array.Empty<string>();
             }
             catch (HttpOperationException ex) when (ex.Response.StatusCode == System.Net.HttpStatusCode.NotFound)
             {
@@ -253,6 +259,7 @@ public sealed class KubernetesService : IKubernetesService
             NamespaceReady: namespaceReady,
             MetricsServerPresent: metricsSnapshot.Available,
             SecretsConfigured: secretsConfigured,
+            ConfiguredSecretKeys: configuredSecretKeys,
             Warnings: warnings);
     }
 
@@ -311,6 +318,77 @@ public sealed class KubernetesService : IKubernetesService
 
             return true;
         });
+    }
+
+    public async Task<string> GetSecretValueAsync(string key, CancellationToken ct)
+    {
+        if (!_clientFactory.TryGetClient(out var client, out var error))
+        {
+            throw new ClusterUnreachableException($"Cluster unreachable: {error}");
+        }
+
+        return await RunAsync(async () =>
+        {
+            var secret = await ReadSecretOrThrowAsync(client!, key, ct);
+
+            if (secret.Data is null || !secret.Data.TryGetValue(key, out var bytes))
+            {
+                throw new KeyNotFoundException($"Secret key '{key}' is not configured.");
+            }
+
+            // Deliberately not logged: the value leaves the process only in the
+            // HTTP response to the explicit reveal request.
+            return System.Text.Encoding.UTF8.GetString(bytes);
+        });
+    }
+
+    public async Task DeleteSecretKeyAsync(string key, CancellationToken ct)
+    {
+        // Keys referenced by a curated template are protected: deployments wire
+        // them as non-optional secretKeyRef env vars, so deleting one would leave
+        // servers of that game unable to start. Maps to 409 Conflict.
+        if (CuratedGameTemplates.All.Values.Any(t => t.SecretKeyRefs.Values.Contains(key)))
+        {
+            throw new InvalidOperationException(
+                $"'{key}' is referenced by a game template; deleting it would prevent servers " +
+                "of that game from starting. Overwrite its value instead.");
+        }
+
+        if (!_clientFactory.TryGetClient(out var client, out var error))
+        {
+            throw new ClusterUnreachableException($"Cluster unreachable: {error}");
+        }
+
+        await RunAsync(async () =>
+        {
+            var secret = await ReadSecretOrThrowAsync(client!, key, ct);
+
+            if (secret.Data is null || !secret.Data.Remove(key))
+            {
+                throw new KeyNotFoundException($"Secret key '{key}' is not configured.");
+            }
+
+            await client!.CoreV1.ReplaceNamespacedSecretAsync(
+                secret, _options.SecretName, _options.Namespace, cancellationToken: ct);
+
+            _logger.LogInformation(
+                "Removed key {Key} from secret {SecretName}", key, _options.SecretName);
+
+            return true;
+        });
+    }
+
+    private async Task<V1Secret> ReadSecretOrThrowAsync(IKubernetes client, string key, CancellationToken ct)
+    {
+        try
+        {
+            return await client.CoreV1.ReadNamespacedSecretAsync(
+                _options.SecretName, _options.Namespace, cancellationToken: ct);
+        }
+        catch (HttpOperationException ex) when (ex.Response.StatusCode == System.Net.HttpStatusCode.NotFound)
+        {
+            throw new KeyNotFoundException($"Secret key '{key}' is not configured.");
+        }
     }
 
     public async Task<IReadOnlyList<ServerSummary>> ListServersAsync(CancellationToken ct)

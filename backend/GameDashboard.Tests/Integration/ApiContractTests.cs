@@ -44,8 +44,9 @@ public class ApiContractTests
 
         AssertHasProperties(json,
             "kubeconfigPresent", "clusterReachable", "namespaceReady",
-            "metricsServerPresent", "secretsConfigured", "warnings");
+            "metricsServerPresent", "secretsConfigured", "configuredSecretKeys", "warnings");
 
+        Assert.Equal(JsonValueKind.Array, json.GetProperty("configuredSecretKeys").ValueKind);
         Assert.Equal(JsonValueKind.Array, json.GetProperty("warnings").ValueKind);
     }
 

@@ -14,4 +14,5 @@ public record SetupStatus(
     bool NamespaceReady,
     bool MetricsServerPresent,
     bool SecretsConfigured,
+    IReadOnlyList<string> ConfiguredSecretKeys,
     IReadOnlyList<string> Warnings);

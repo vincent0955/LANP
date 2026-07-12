@@ -16,6 +16,10 @@ export const api = {
 
   setupStatus: () => http.get<SetupStatus>("/api/setup/status"),
   setSecrets: (values: Record<string, string>) => http.post<void>("/api/setup/secrets", values),
+  getSecretValue: (key: string) =>
+    http.get<{ value: string }>(`/api/setup/secrets/${encodeURIComponent(key)}/value`),
+  deleteSecretKey: (key: string) =>
+    http.del<void>(`/api/setup/secrets/${encodeURIComponent(key)}`),
 
   listServers: () => http.get<ServerSummary[]>("/api/servers"),
   getServer: (name: string) => http.get<ServerDetail>(`/api/servers/${encodeURIComponent(name)}`),

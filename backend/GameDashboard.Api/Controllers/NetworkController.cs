@@ -46,6 +46,10 @@ public sealed class NetworkController : ControllerBase
 
         var publicAddress = await _publicIpService.GetPublicIpAsync(ct);
 
-        return Ok(new NetworkInfo(lanAddresses, publicAddress));
+        return Ok(new NetworkInfo(
+            lanAddresses,
+            publicAddress,
+            DeploymentBuilderService.NodePortRangeStart,
+            DeploymentBuilderService.NodePortRangeEnd));
     }
 }

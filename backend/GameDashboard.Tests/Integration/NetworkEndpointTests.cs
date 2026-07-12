@@ -49,5 +49,12 @@ public class NetworkEndpointTests : IClassFixture<WebApplicationFactory<Program>
             Assert.Equal(System.Net.Sockets.AddressFamily.InterNetwork, publicIp!.AddressFamily);
             Assert.False(IPAddress.IsLoopback(publicIp), $"loopback leaked: {info.PublicAddress}");
         }
+
+        // The forwardable window backs the "forward these ports once" UI copy; it
+        // must be a sane, non-empty range inside Kubernetes' NodePort space.
+        Assert.Equal(GameDashboard.Api.Services.DeploymentBuilderService.NodePortRangeStart, info.NodePortRangeStart);
+        Assert.Equal(GameDashboard.Api.Services.DeploymentBuilderService.NodePortRangeEnd, info.NodePortRangeEnd);
+        Assert.InRange(info.NodePortRangeStart, 30000, 32767);
+        Assert.InRange(info.NodePortRangeEnd, info.NodePortRangeStart, 32767);
     }
 }

@@ -80,6 +80,8 @@ export interface SetupStatus {
   namespaceReady: boolean;
   metricsServerPresent: boolean;
   secretsConfigured: boolean;
+  /** Key names present in the game-secrets Secret; values are never exposed. */
+  configuredSecretKeys: string[];
   warnings: string[];
 }
 
@@ -112,10 +114,14 @@ export interface RconCommandResponse {
  * addresses. lanAddresses are the LAN IPv4s in preference order (empty when no LAN
  * adapter is up). publicAddress is the internet-facing IPv4, only reachable by
  * players after the node port is forwarded on the router; null if lookup failed.
+ * nodePortRangeStart/End is the backend's whole allocation window — forwarding
+ * that range once on the router covers every current and future server.
  */
 export interface NetworkInfo {
   lanAddresses: string[];
   publicAddress: string | null;
+  nodePortRangeStart: number;
+  nodePortRangeEnd: number;
 }
 
 // SignalR hub payloads (GameDashboard.Api/RealTime/HubEvents.cs). Every hub

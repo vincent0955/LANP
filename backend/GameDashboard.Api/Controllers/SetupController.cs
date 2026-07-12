@@ -25,9 +25,9 @@ public sealed class SetupController : ControllerBase
     }
 
     /// <summary>
-    /// Write-only: creates or updates the game-secrets Secret. There is
-    /// deliberately no corresponding GET — secret values are never readable back
-    /// through this API (Req 13.3, Req 14.3).
+    /// Creates or updates the game-secrets Secret. There is deliberately no bulk
+    /// GET — values only leave the cluster one at a time via the explicit
+    /// per-key reveal endpoint below (relaxation of Req 13.3 / Req 14.3).
     /// </summary>
     [HttpPost("secrets")]
     public async Task<IActionResult> SetSecrets([FromBody] IDictionary<string, string>? values, CancellationToken ct)
@@ -40,6 +40,29 @@ public sealed class SetupController : ControllerBase
         }
 
         await _kubernetesService.SetSecretsAsync(values, ct);
+        return NoContent();
+    }
+
+    /// <summary>
+    /// Reveals a single secret value for the setup page's click-to-show button.
+    /// 404 when the key (or the Secret itself) doesn't exist.
+    /// </summary>
+    [HttpGet("secrets/{key}/value")]
+    public async Task<IActionResult> GetSecretValue(string key, CancellationToken ct)
+    {
+        var value = await _kubernetesService.GetSecretValueAsync(key, ct);
+        return Ok(new { value });
+    }
+
+    /// <summary>
+    /// Removes a single key from the game-secrets Secret. Keys referenced by a
+    /// curated game template are rejected with 409 (see
+    /// KubernetesService.DeleteSecretKeyAsync).
+    /// </summary>
+    [HttpDelete("secrets/{key}")]
+    public async Task<IActionResult> DeleteSecretKey(string key, CancellationToken ct)
+    {
+        await _kubernetesService.DeleteSecretKeyAsync(key, ct);
         return NoContent();
     }
 }

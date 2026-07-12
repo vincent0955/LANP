@@ -175,7 +175,8 @@ public class DeploymentBuilderServiceTests
         Assert.DoesNotContain(30000, assignedPorts);
         Assert.DoesNotContain(30001, assignedPorts);
         Assert.DoesNotContain(30002, assignedPorts);
-        Assert.All(assignedPorts, p => Assert.InRange(p, 30000, 32767));
+        Assert.All(assignedPorts, p => Assert.InRange(
+            p, DeploymentBuilderService.NodePortRangeStart, DeploymentBuilderService.NodePortRangeEnd));
     }
 
     [Fact]
@@ -192,7 +193,9 @@ public class DeploymentBuilderServiceTests
     [Fact]
     public void Build_Throws_When_NodePort_Range_Fully_Exhausted()
     {
-        var allPorts = Enumerable.Range(30000, 32767 - 30000 + 1).ToHashSet();
+        var allPorts = Enumerable.Range(
+            DeploymentBuilderService.NodePortRangeStart,
+            DeploymentBuilderService.NodePortRangeEnd - DeploymentBuilderService.NodePortRangeStart + 1).ToHashSet();
         var builder = new DeploymentBuilderService();
 
         Assert.Throws<InvalidOperationException>(() =>

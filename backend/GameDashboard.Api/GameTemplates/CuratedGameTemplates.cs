@@ -118,7 +118,8 @@ public static class CuratedGameTemplates
         {
             Cs2, Insurgency, Minecraft,
             TeamFortress2, Rust, Valheim, ProjectZomboid, ArkSurvivalEvolved,
-            Terraria, SevenDaysToDie, Left4Dead2, GarrysMod, Palworld, VRising, Satisfactory
+            Terraria, SevenDaysToDie, Left4Dead2, GarrysMod, Palworld, VRising, Satisfactory,
+            MinecraftBedrock, Hytale, SonsOfTheForest, Factorio, TerrariaTModLoader, ConanExiles
         };
 
         return templates.ToDictionary(t => t.ImageTag, t => t);
@@ -328,5 +329,159 @@ public static class CuratedGameTemplates
         },
         DefaultResources: new ResourceSpec("1000m", "2000m", "4Gi", "8Gi"),
         DefaultConfig: new Dictionary<string, string>(),
+        SecretKeyRefs: new Dictionary<string, string>());
+
+    // --- Added 2026-07-12 (user-requested catalog expansion) ---
+    //
+    // Each image below was checked for active maintenance before inclusion; none
+    // has been live-deploy verified yet. Researched but deliberately excluded:
+    // Dune Awakening (Funcom self-hosting is a Windows Hyper-V VM appliance, no
+    // Docker), CS:GO (cm2network/csgo archived after CS2's release; CS2 template
+    // covers it), ARMA 3 (every image requires a real Steam login — conflicts
+    // with the no-Steam-credentials-in-cluster policy), Space Engineers (existing
+    // images are file-config driven, need multiple mounts, and look stale).
+
+    // Bedrock has no RCON protocol and its single port is UDP, so there is no
+    // readiness probe and no RCON tab for this template.
+    public static readonly GameTemplate MinecraftBedrock = new(
+        DisplayName: "Minecraft (Bedrock Edition)",
+        ImageTag: "itzg/minecraft-bedrock-server:latest",
+        SteamAppId: null,
+        DataMountPath: "/data",
+        DefaultStorageBytes: 5L * 1024 * 1024 * 1024,
+        DefaultPorts: new[]
+        {
+            new TemplatePort("game", "UDP", 19132)
+        },
+        DefaultResources: new ResourceSpec("500m", "2000m", "1Gi", "2Gi"),
+        DefaultConfig: new Dictionary<string, string>
+        {
+            ["EULA"] = "TRUE",
+            ["SERVER_NAME"] = "Bedrock Server",
+            ["GAMEMODE"] = "survival",
+            ["DIFFICULTY"] = "normal",
+            ["MAX_PLAYERS"] = "10",
+            ["VERSION"] = "LATEST"
+        },
+        SecretKeyRefs: new Dictionary<string, string>());
+
+    // First boot requires a one-time browser login: the container prints an
+    // OAuth URL to stdout (visible in the app's Logs tab); after the user signs
+    // in with their Hytale account, tokens persist in the data volume and later
+    // starts are unattended. Game traffic is QUIC over UDP.
+    public static readonly GameTemplate Hytale = new(
+        DisplayName: "Hytale",
+        ImageTag: "indifferentbroccoli/hytale-server-docker:latest",
+        SteamAppId: null,
+        DataMountPath: "/home/hytale/server-files",
+        DefaultStorageBytes: 10L * 1024 * 1024 * 1024,
+        DefaultPorts: new[]
+        {
+            new TemplatePort("game", "UDP", 5520)
+        },
+        DefaultResources: new ResourceSpec("1000m", "4000m", "3Gi", "6Gi"),
+        DefaultConfig: new Dictionary<string, string>
+        {
+            ["SERVER_NAME"] = "Hytale Server",
+            ["MAX_PLAYERS"] = "20",
+            ["VIEW_DISTANCE"] = "12",
+            // Keep the JVM heap under the container memory limit (image default is 8G).
+            ["MAX_MEMORY"] = "3G"
+        },
+        SecretKeyRefs: new Dictionary<string, string>());
+
+    // Windows server binaries run under Wine; installs via anonymous steamcmd on
+    // first start. Gameplay settings live in userdata/dedicatedserver.cfg inside
+    // the data volume, not env vars, hence the empty DefaultConfig.
+    public static readonly GameTemplate SonsOfTheForest = new(
+        DisplayName: "Sons of the Forest",
+        ImageTag: "jammsen/sons-of-the-forest-dedicated-server:latest",
+        SteamAppId: 2465200,
+        DataMountPath: "/sonsoftheforest",
+        DefaultStorageBytes: 15L * 1024 * 1024 * 1024,
+        DefaultPorts: new[]
+        {
+            new TemplatePort("game", "UDP", 8766),
+            new TemplatePort("query", "UDP", 27016),
+            new TemplatePort("blobsync", "UDP", 9700)
+        },
+        DefaultResources: new ResourceSpec("2000m", "4000m", "4Gi", "8Gi"),
+        DefaultConfig: new Dictionary<string, string>(),
+        SecretKeyRefs: new Dictionary<string, string>());
+
+    // Official headless server (not steamcmd-installed). The image writes a
+    // random RCON password to <volume>/config/rconpw on first boot — the app
+    // can't read it, so the RCON tab fails soft for Factorio (see tasks.md
+    // known-issue 5: app-managed RCON passwords for every template).
+    public static readonly GameTemplate Factorio = new(
+        DisplayName: "Factorio",
+        ImageTag: "factoriotools/factorio:stable",
+        SteamAppId: null,
+        DataMountPath: "/factorio",
+        DefaultStorageBytes: 5L * 1024 * 1024 * 1024,
+        DefaultPorts: new[]
+        {
+            new TemplatePort("game", "UDP", 34197),
+            new TemplatePort("rcon", "TCP", 27015)
+        },
+        DefaultResources: new ResourceSpec("500m", "2000m", "1Gi", "2Gi"),
+        DefaultConfig: new Dictionary<string, string>
+        {
+            ["GENERATE_NEW_SAVE"] = "true",
+            ["LOAD_LATEST_SAVE"] = "true"
+        },
+        SecretKeyRefs: new Dictionary<string, string>());
+
+    // Same maintainer/repo as the vanilla Terraria template (the standalone
+    // tmodloader1.4-docker image was merged into terraria-docker in 2025). To
+    // load mods, drop a modpack folder into ModPacks/ inside the data volume and
+    // set a MODPACK config override with its name; without one it runs plain tML.
+    public static readonly GameTemplate TerrariaTModLoader = new(
+        DisplayName: "Terraria (tModLoader)",
+        ImageTag: "passivelemon/terraria-docker:tmodloader-latest",
+        SteamAppId: null,
+        DataMountPath: "/opt/terraria/config",
+        DefaultStorageBytes: 4L * 1024 * 1024 * 1024,
+        DefaultPorts: new[]
+        {
+            new TemplatePort("game", "TCP", 7777)
+        },
+        DefaultResources: new ResourceSpec("1000m", "2000m", "2Gi", "4Gi"),
+        DefaultConfig: new Dictionary<string, string>
+        {
+            ["WORLDNAME"] = "world",
+            ["AUTOCREATE"] = "2",
+            ["MAXPLAYERS"] = "8",
+            ["PASSWORD"] = ""
+        },
+        SecretKeyRefs: new Dictionary<string, string>());
+
+    // Windows/UE server under Wine, installed via anonymous steamcmd. The image's
+    // compose file splits /conanexiles and /conanexiles/ConanSandbox/Saved into
+    // two volumes, but Saved is a subdirectory — one PVC at /conanexiles persists
+    // both the ~30Gi install and the world database.
+    public static readonly GameTemplate ConanExiles = new(
+        DisplayName: "Conan Exiles",
+        ImageTag: "ghcr.io/balnaimi/conan-exiles-server:latest",
+        SteamAppId: 443030,
+        DataMountPath: "/conanexiles",
+        DefaultStorageBytes: 40L * 1024 * 1024 * 1024,
+        // No rcon port here even though the image supports TCP 25575: RCON is
+        // optional in this image, and the deploy builder targets the first TCP
+        // port with the readiness probe — if RCON weren't enabled, the server
+        // would sit at Pending forever. UDP-only means no probe, like Palworld.
+        DefaultPorts: new[]
+        {
+            new TemplatePort("game", "UDP", 7777),
+            new TemplatePort("raw", "UDP", 7778),
+            new TemplatePort("query", "UDP", 27015)
+        },
+        DefaultResources: new ResourceSpec("2000m", "4000m", "4Gi", "8Gi"),
+        DefaultConfig: new Dictionary<string, string>
+        {
+            ["SERVER_NAME"] = "Conan Exiles Server",
+            ["SERVER_TYPE"] = "pve",
+            ["MAX_PLAYERS"] = "10"
+        },
         SecretKeyRefs: new Dictionary<string, string>());
 }

@@ -8,11 +8,11 @@ public class GameCatalogServiceTests
     private readonly GameCatalogService _service = new();
 
     [Fact]
-    public void GetGames_Returns_All_Fifteen_Games_When_No_Search()
+    public void GetGames_Returns_All_TwentyOne_Games_When_No_Search()
     {
         var games = _service.GetGames(null);
 
-        Assert.Equal(15, games.Count);
+        Assert.Equal(21, games.Count);
     }
 
     [Fact]
@@ -20,7 +20,7 @@ public class GameCatalogServiceTests
     {
         var games = _service.GetGames(string.Empty);
 
-        Assert.Equal(15, games.Count);
+        Assert.Equal(21, games.Count);
     }
 
     [Fact]
@@ -28,7 +28,7 @@ public class GameCatalogServiceTests
     {
         var games = _service.GetGames("   ");
 
-        Assert.Equal(15, games.Count);
+        Assert.Equal(21, games.Count);
     }
 
     [Fact]
@@ -51,8 +51,10 @@ public class GameCatalogServiceTests
     {
         var games = _service.GetGames(search);
 
-        Assert.Single(games);
-        Assert.Equal("Minecraft (Java Edition)", games[0].DisplayName);
+        // Both Minecraft editions match; results are alphabetical.
+        Assert.Equal(2, games.Count);
+        Assert.Equal("Minecraft (Bedrock Edition)", games[0].DisplayName);
+        Assert.Equal("Minecraft (Java Edition)", games[1].DisplayName);
     }
 
     [Fact]

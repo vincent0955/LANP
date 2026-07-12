@@ -9,8 +9,17 @@ namespace GameDashboard.Api.Services;
 public sealed class DeploymentBuilderService : IDeploymentBuilder
 {
     private const string AppLabel = "app";
-    private const int NodePortRangeStart = 30000;
-    private const int NodePortRangeEnd = 32767;
+
+    /// <summary>
+    /// The dashboard allocates NodePorts from this deliberately small window
+    /// (50 ports) instead of the full Kubernetes range [30000, 32767], so a user
+    /// can forward 30000–30049 (TCP + UDP) on their router once and every server
+    /// they ever deploy is reachable from the internet — no per-server router
+    /// trips. Exposed via GET /api/network so the frontend copy stays in sync.
+    /// At 2–3 ports per server this still allows ~20 concurrent servers.
+    /// </summary>
+    public const int NodePortRangeStart = 30000;
+    public const int NodePortRangeEnd = 30049;
 
     public ServerManifestSet Build(
         GameTemplate template,
@@ -35,8 +44,9 @@ public sealed class DeploymentBuilderService : IDeploymentBuilder
     }
 
     /// <summary>
-    /// Assigns a unique NodePort in [30000, 32767] to each template port, skipping
-    /// any value already present in <paramref name="usedNodePorts"/>. Deterministic:
+    /// Assigns a unique NodePort in the dashboard's forwardable window to each
+    /// template port, skipping any value already present in
+    /// <paramref name="usedNodePorts"/>. Deterministic:
     /// scans upward from the range start so the same inputs always produce the same
     /// assignment (useful for tests and predictable behavior across restarts).
     /// </summary>
@@ -68,7 +78,8 @@ public sealed class DeploymentBuilderService : IDeploymentBuilder
         }
 
         throw new InvalidOperationException(
-            $"No free NodePort available in range [{NodePortRangeStart},{NodePortRangeEnd}].");
+            $"All ports in the dashboard's range {NodePortRangeStart}–{NodePortRangeEnd} are in use. " +
+            "Delete a server to free some up.");
     }
 
     private static void ValidateResources(ResourceSpec resources)

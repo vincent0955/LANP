@@ -104,3 +104,11 @@ export function useSetSecrets() {
     onSuccess: () => queryClient.invalidateQueries({ queryKey: queryKeys.setup }),
   });
 }
+
+export function useDeleteSecretKey() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (key: string) => api.deleteSecretKey(key),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: queryKeys.setup }),
+  });
+}

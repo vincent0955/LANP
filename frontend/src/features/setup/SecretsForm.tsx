@@ -1,11 +1,13 @@
 import { useState } from "react";
-import { Plus, X } from "lucide-react";
+import { Eye, EyeOff, Plus, Trash2, X } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { useSetSecrets } from "@/api/queries";
+import { api } from "@/api/endpoints";
+import { useDeleteSecretKey, useSetSecrets, useSetupStatus } from "@/api/queries";
 import { toastApiError } from "@/lib/errors";
 
 // Secret keys the curated game templates reference via secretKeyRefs
@@ -31,8 +33,101 @@ const KNOWN_SECRETS: { key: string; label: string; hint: string }[] = [
 
 export function SecretsForm() {
   const setSecrets = useSetSecrets();
+  const deleteSecret = useDeleteSecretKey();
+  const setup = useSetupStatus();
   const [values, setValues] = useState<Record<string, string>>({});
   const [custom, setCustom] = useState<{ key: string; value: string }[]>([]);
+  const [revealed, setRevealed] = useState<Record<string, string>>({});
+  const [revealing, setRevealing] = useState<string | null>(null);
+  const [pendingDelete, setPendingDelete] = useState<string | null>(null);
+
+  // Keys already stored in the cluster (names only; values are fetched one at a
+  // time on explicit reveal). Custom keys not in KNOWN_SECRETS get their own
+  // field so they remain visible and editable after saving.
+  const configuredKeys = setup.data?.configuredSecretKeys ?? [];
+  const configuredCustomKeys = configuredKeys.filter(
+    (key) => !KNOWN_SECRETS.some((s) => s.key === key),
+  );
+
+  const toggleReveal = async (key: string) => {
+    if (key in revealed) {
+      setRevealed(({ [key]: _, ...rest }) => rest);
+      return;
+    }
+    setRevealing(key);
+    try {
+      const { value } = await api.getSecretValue(key);
+      setRevealed((r) => ({ ...r, [key]: value }));
+    } catch (error) {
+      toastApiError(error);
+    } finally {
+      setRevealing(null);
+    }
+  };
+
+  const removeKey = (key: string) => {
+    if (pendingDelete !== key) {
+      setPendingDelete(key);
+      return;
+    }
+    deleteSecret.mutate(key, {
+      onSuccess: () => {
+        toast.success(`Secret ${key} deleted.`);
+        setPendingDelete(null);
+        setRevealed(({ [key]: _, ...rest }) => rest);
+        setValues(({ [key]: _, ...rest }) => rest);
+      },
+      onError: (error) => {
+        setPendingDelete(null);
+        toastApiError(error);
+      },
+    });
+  };
+
+  const configuredControls = (key: string, deletable: boolean) => (
+    <>
+      <Badge variant="secondary">Configured</Badge>
+      <Button
+        variant="ghost"
+        size="icon"
+        className="size-6"
+        title={key in revealed ? "Hide current value" : "Show current value"}
+        disabled={revealing === key}
+        onClick={() => toggleReveal(key)}
+      >
+        {key in revealed ? <EyeOff className="size-4" /> : <Eye className="size-4" />}
+      </Button>
+      {deletable &&
+        (pendingDelete === key ? (
+          <Button
+            variant="destructive"
+            size="sm"
+            className="h-6"
+            disabled={deleteSecret.isPending}
+            onClick={() => removeKey(key)}
+          >
+            Confirm delete
+          </Button>
+        ) : (
+          <Button
+            variant="ghost"
+            size="icon"
+            className="size-6"
+            title="Delete this secret"
+            onClick={() => removeKey(key)}
+          >
+            <Trash2 className="size-4" />
+          </Button>
+        ))}
+    </>
+  );
+
+  const revealedValue = (key: string) =>
+    key in revealed && (
+      <p className="rounded bg-muted px-2 py-1 font-mono text-xs break-all">
+        {revealed[key] === "" ? <span className="italic">(empty)</span> : revealed[key]}
+      </p>
+    );
 
   const save = () => {
     const payload: Record<string, string> = {};
@@ -61,14 +156,18 @@ export function SecretsForm() {
       <CardHeader>
         <CardTitle>Secrets</CardTitle>
         <CardDescription>
-          Stored in the cluster's game-secrets Secret. Write-only: existing values are never shown
-          here — leave a field empty to keep its current value.
+          Stored in the cluster's game-secrets Secret. Values stay hidden until you click the eye
+          to reveal them — leave a field empty to keep its current value.
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
         {KNOWN_SECRETS.map(({ key, label, hint }) => (
           <div key={key} className="space-y-1.5">
-            <Label htmlFor={`secret-${key}`}>{label}</Label>
+            <div className="flex items-center gap-2">
+              <Label htmlFor={`secret-${key}`}>{label}</Label>
+              {configuredKeys.includes(key) && configuredControls(key, false)}
+            </div>
+            {revealedValue(key)}
             <Input
               id={`secret-${key}`}
               type="password"
@@ -76,6 +175,27 @@ export function SecretsForm() {
               onChange={(e) => setValues((v) => ({ ...v, [key]: e.target.value }))}
             />
             <p className="text-xs text-muted-foreground">{hint}</p>
+          </div>
+        ))}
+
+        {configuredCustomKeys.map((key) => (
+          <div key={key} className="space-y-1.5">
+            <div className="flex items-center gap-2">
+              <Label htmlFor={`secret-${key}`} className="font-mono">
+                {key}
+              </Label>
+              {configuredControls(key, true)}
+            </div>
+            {revealedValue(key)}
+            <Input
+              id={`secret-${key}`}
+              type="password"
+              value={values[key] ?? ""}
+              onChange={(e) => setValues((v) => ({ ...v, [key]: e.target.value }))}
+            />
+            <p className="text-xs text-muted-foreground">
+              Custom secret — leave empty to keep the current value.
+            </p>
           </div>
         ))}
 

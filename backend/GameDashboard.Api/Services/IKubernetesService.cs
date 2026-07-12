@@ -54,8 +54,24 @@ public interface IKubernetesService
 
     /// <summary>
     /// Creates or updates the game-secrets Secret with the given key/value pairs.
-    /// Write-only: there is no corresponding read method, by design (Req 13.3,
-    /// Req 14.3) — secret values must never be readable back through this API.
+    /// Values are never returned in bulk or logged; reading a value back requires
+    /// an explicit per-key request via <see cref="GetSecretValueAsync"/>
+    /// (a deliberate relaxation of Req 13.3's original write-only rule so the
+    /// dashboard can offer click-to-reveal).
     /// </summary>
     Task SetSecretsAsync(IDictionary<string, string> values, CancellationToken ct);
+
+    /// <summary>
+    /// Reads a single value from the game-secrets Secret for click-to-reveal in
+    /// the UI. Throws <see cref="KeyNotFoundException"/> (→ 404) when the Secret
+    /// or the key does not exist.
+    /// </summary>
+    Task<string> GetSecretValueAsync(string key, CancellationToken ct);
+
+    /// <summary>
+    /// Removes a single key from the game-secrets Secret. Throws
+    /// <see cref="KeyNotFoundException"/> (→ 404) when the Secret or the key does
+    /// not exist.
+    /// </summary>
+    Task DeleteSecretKeyAsync(string key, CancellationToken ct);
 }

@@ -1,6 +1,11 @@
 # Spec: Minecraft server types, mods, and modpacks
 
-Status: draft for review · 2026-07-15
+Status: Phases 1–3 implemented · 2026-07-16 (Phase 4, post-deploy content
+management, not started). Implementation notes vs. this spec: Paper's v2 API
+was retired (410) — versions come from Fill v3; Forge's promotions_slim.json is
+gone — versions come from its maven-metadata.xml; NeoForge build numbers are
+mapped to MC versions and cross-checked against Mojang's release list (needed
+since Minecraft's 2026 switch to year-based versions like 26.2).
 
 ## Summary
 

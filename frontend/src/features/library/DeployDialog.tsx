@@ -17,15 +17,36 @@ import { isValidServerName, SERVER_NAME_RULES, suggestServerName } from "@/lib/s
 import { toastApiError } from "@/lib/errors";
 import { formatBytes } from "@/lib/format";
 import type { GameTemplate } from "@/api/types";
+import { MinecraftDeployForm } from "./MinecraftDeployForm";
 
 interface Props {
   game: GameTemplate | null;
   onClose: () => void;
 }
 
+// Config keys that get a first-class labeled field above the generic config list.
+// `required` blocks deploy while empty — the server would just crash-loop without it.
+const FEATURED_KEYS: Record<
+  string,
+  { label: string; placeholder: string; hint: string; required: boolean }
+> = {
+  MODRINTH_MODPACK: {
+    label: "Modpack",
+    placeholder: "https://modrinth.com/modpack/…",
+    hint: "Paste a Modrinth modpack page link (or its project slug). The pack is downloaded and installed on first start.",
+    required: true,
+  },
+};
+
 export function DeployDialog({ game, onClose }: Props) {
-  // Key the form state by the selected game so switching games resets it.
-  return game ? <DeployForm key={game.imageTag} game={game} onClose={onClose} /> : null;
+  if (!game) return null;
+  // Minecraft (Java) gets the specialized software/version/content panel;
+  // everything else uses the generic config form. Key the form state by the
+  // selected game so switching games resets it.
+  if (game.kind === "MinecraftJava") {
+    return <MinecraftDeployForm key={game.imageTag} game={game} onClose={onClose} />;
+  }
+  return <DeployForm key={game.imageTag} game={game} onClose={onClose} />;
 }
 
 function DeployForm({ game, onClose }: { game: GameTemplate; onClose: () => void }) {
@@ -37,12 +58,22 @@ function DeployForm({ game, onClose }: { game: GameTemplate; onClose: () => void
   const [touched, setTouched] = useState(false);
 
   const nameValid = isValidServerName(name);
-  const configKeys = useMemo(() => Object.keys(game.defaultConfig), [game]);
+  const featuredKeys = useMemo(
+    () => Object.keys(game.defaultConfig).filter((key) => key in FEATURED_KEYS),
+    [game],
+  );
+  const configKeys = useMemo(
+    () => Object.keys(game.defaultConfig).filter((key) => !(key in FEATURED_KEYS)),
+    [game],
+  );
   const secretKeys = useMemo(() => new Set(Object.keys(game.secretKeyRefs)), [game]);
+  const missingRequired = featuredKeys.filter(
+    (key) => FEATURED_KEYS[key].required && !(config[key] ?? "").trim(),
+  );
 
   const submit = () => {
     setTouched(true);
-    if (!nameValid) return;
+    if (!nameValid || missingRequired.length > 0) return;
 
     // Only send values the user actually changed from the template defaults.
     const overrides: Record<string, string> = {};
@@ -96,6 +127,26 @@ function DeployForm({ game, onClose }: { game: GameTemplate; onClose: () => void
             )}
           </div>
 
+          {featuredKeys.map((key) => {
+            const meta = FEATURED_KEYS[key];
+            const missing = touched && meta.required && !(config[key] ?? "").trim();
+            return (
+              <div key={key} className="space-y-2">
+                <Label htmlFor={`featured-${key}`}>{meta.label}</Label>
+                <Input
+                  id={`featured-${key}`}
+                  value={config[key] ?? ""}
+                  placeholder={meta.placeholder}
+                  onChange={(e) => setConfig((c) => ({ ...c, [key]: e.target.value }))}
+                  aria-invalid={missing}
+                />
+                <p className={`text-xs ${missing ? "text-destructive" : "text-muted-foreground"}`}>
+                  {meta.hint}
+                </p>
+              </div>
+            );
+          })}
+
           {configKeys.length > 0 && (
             <div className="space-y-2">
               <Label>Configuration</Label>
@@ -130,7 +181,10 @@ function DeployForm({ game, onClose }: { game: GameTemplate; onClose: () => void
           <Button variant="outline" onClick={onClose} disabled={deploy.isPending}>
             Cancel
           </Button>
-          <Button onClick={submit} disabled={deploy.isPending || (touched && !nameValid)}>
+          <Button
+            onClick={submit}
+            disabled={deploy.isPending || (touched && (!nameValid || missingRequired.length > 0))}
+          >
             {deploy.isPending ? "Deploying…" : "Deploy"}
           </Button>
         </DialogFooter>

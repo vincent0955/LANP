@@ -1,8 +1,8 @@
 {
   "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
-  "productName": "Game Server Dashboard",
+  "productName": "LANP",
   "version": "0.1.0",
-  "identifier": "com.gamedashboard.desktop",
+  "identifier": "com.lanp.desktop",
   "build": {
     "frontendDist": "../dist",
     "devUrl": "http://localhost:5173",
@@ -12,7 +12,7 @@
   "app": {
     "windows": [
       {
-        "title": "Game Server Dashboard",
+        "title": "LANP",
         "width": 1280,
         "height": 800,
         "minWidth": 960,

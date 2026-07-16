@@ -75,12 +75,23 @@ public static class CuratedGameTemplates
         // an env var, so there is no secretKeyRef wiring for this template today.
         SecretKeyRefs: new Dictionary<string, string>());
 
+    // One template covers vanilla, plugin servers (Paper/Purpur), mod loaders
+    // (Fabric/Quilt/Forge/NeoForge), and Modrinth modpacks — the itzg entrypoint
+    // installs whichever server software TYPE/VERSION (or MODRINTH_MODPACK) asks
+    // for on first boot. See docs/minecraft-server-types.md. Deliberately no
+    // TYPE/VERSION keys in DefaultConfig: the Minecraft deploy form sends them as
+    // overrides only when they differ from itzg's own defaults (VANILLA/LATEST),
+    // and a modpack deploy must not carry a TYPE at all (the pack pins the
+    // loader). The container image is NOT this catalog-key tag: the deploy
+    // builder swaps in the per-Java-version tag via MinecraftJavaImage, and
+    // ImageTagAliases keeps those variant tags (and existing deployments, incl.
+    // the retired modded template's java21) resolving back to this template.
     public static readonly GameTemplate Minecraft = new(
         DisplayName: "Minecraft (Java Edition)",
         ImageTag: "itzg/minecraft-server:latest",
         SteamAppId: null,
         DataMountPath: "/data",
-        DefaultStorageBytes: 10L * 1024 * 1024 * 1024, // 10Gi
+        DefaultStorageBytes: 20L * 1024 * 1024 * 1024, // 20Gi — modpacks are 5-15Gi before world data
         DefaultPorts: new[]
         {
             new TemplatePort("game", "TCP", 25565),
@@ -92,8 +103,6 @@ public static class CuratedGameTemplates
         DefaultConfig: new Dictionary<string, string>
         {
             ["EULA"] = "TRUE",
-            ["TYPE"] = "VANILLA",
-            ["VERSION"] = "LATEST",
             ["MEMORY"] = "2G",
             ["MAX_PLAYERS"] = "10",
             ["MOTD"] = "Local Minecraft Server",
@@ -105,6 +114,13 @@ public static class CuratedGameTemplates
         SecretKeyRefs: new Dictionary<string, string>
         {
             ["RCON_PASSWORD"] = "RCON_PASSWORD"
+        },
+        Kind: TemplateKind.MinecraftJava,
+        ImageTagAliases: new[]
+        {
+            MinecraftJavaImage.Java8,
+            MinecraftJavaImage.Java17,
+            MinecraftJavaImage.Java21
         });
 
     /// <summary>All curated templates, keyed by image tag for catalog lookup.</summary>
@@ -124,6 +140,27 @@ public static class CuratedGameTemplates
 
         return templates.ToDictionary(t => t.ImageTag, t => t);
     }
+
+    /// <summary>
+    /// Alias-aware lookup: resolves a template by its primary image tag or any of
+    /// its ImageTagAliases (deployed servers may run a variant image, e.g.
+    /// Minecraft's per-Java tags). Primary tags win on collision.
+    /// </summary>
+    public static GameTemplate? ResolveByTag(string tag) =>
+        _byAnyTag.Value.TryGetValue(tag, out var template) ? template : null;
+
+    private static readonly Lazy<IReadOnlyDictionary<string, GameTemplate>> _byAnyTag = new(() =>
+    {
+        var map = new Dictionary<string, GameTemplate>(All);
+        foreach (var template in All.Values)
+        {
+            foreach (var alias in template.ImageTagAliases ?? Array.Empty<string>())
+            {
+                map.TryAdd(alias, template);
+            }
+        }
+        return map;
+    });
 
     // --- Additional popular LinuxGSM-backed games (Req 11: ~15-game curated catalog) ---
     //

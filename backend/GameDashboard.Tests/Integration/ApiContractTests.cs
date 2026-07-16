@@ -71,7 +71,9 @@ public class ApiContractTests
         AssertHasProperties(first,
             "displayName", "imageTag", "steamAppId", "dataMountPath",
             "defaultStorageBytes", "defaultPorts", "defaultResources",
-            "defaultConfig", "secretKeyRefs");
+            "defaultConfig", "secretKeyRefs", "kind", "imageTagAliases");
+        // kind must serialize as a string (JsonStringEnumConverter), not a raw int.
+        Assert.Equal(JsonValueKind.String, first.GetProperty("kind").ValueKind);
     }
 
     [Fact]

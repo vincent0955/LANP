@@ -41,6 +41,17 @@ public class DeploymentBuilderServiceTests
     }
 
     [Fact]
+    public void Build_Sets_Recreate_Strategy()
+    {
+        var builder = new DeploymentBuilderService();
+        var result = builder.Build(CuratedGameTemplates.Cs2, Request(), NoUsedPorts, Namespace, SecretName);
+
+        // RollingUpdate would briefly run old and new pods against the same RWO
+        // PVC on a single node — save/world corruption risk for stateful servers.
+        Assert.Equal("Recreate", result.Deployment.Spec.Strategy.Type);
+    }
+
+    [Fact]
     public void Build_Sets_ReadWriteOnce_Access_Mode_On_Pvc()
     {
         var builder = new DeploymentBuilderService();

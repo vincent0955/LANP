@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1888 640">
+  <defs>
+    
+  </defs>
+  <g transform="translate(90 112.5) scale(5)" fill="#5cc8ff">
+    <rect x="10" y="14" width="52" height="13" rx="6.5" opacity="0.35"></rect>
+    <rect x="10" y="35" width="52" height="13" rx="6.5" opacity="0.65"></rect>
+    <path d="M10 62.5 C10 58.9 12.9 56 16.5 56 L56 56 L74 62.5 L56 69 L16.5 69 C12.9 69 10 66.1 10 62.5 Z"></path>
+  </g>
+  <text x="560" y="464" font-family="Outfit, &#39;Segoe UI&#39;, sans-serif" font-weight="700" font-size="400" letter-spacing="-12" fill="#1c2530">LANP</text>
+</svg>

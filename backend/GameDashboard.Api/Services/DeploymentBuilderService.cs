@@ -1,3 +1,4 @@
+using GameDashboard.Api.GameTemplates;
 using GameDashboard.Api.Models;
 using k8s.Models;
 
@@ -34,10 +35,17 @@ public sealed class DeploymentBuilderService : IDeploymentBuilder
         ValidateResources(resources);
 
         var assignedPorts = AssignNodePorts(template.DefaultPorts, usedNodePorts);
+        var mergedConfig = MergeConfig(template, request);
 
-        var configMap = BuildConfigMap(template, request, namespaceName);
+        // Minecraft Java runs the itzg image variant whose JVM matches the
+        // requested Minecraft version; every other template runs its own tag.
+        var image = template.Kind == TemplateKind.MinecraftJava
+            ? MinecraftJavaImage.Resolve(mergedConfig)
+            : template.ImageTag;
+
+        var configMap = BuildConfigMap(mergedConfig, request, namespaceName);
         var pvc = BuildPvc(template, request, namespaceName);
-        var deployment = BuildDeployment(template, request, resources, assignedPorts, namespaceName, secretName);
+        var deployment = BuildDeployment(template, request, image, resources, assignedPorts, namespaceName, secretName);
         var service = BuildService(request, assignedPorts, namespaceName);
 
         return new ServerManifestSet(deployment, service, pvc, configMap);
@@ -108,7 +116,7 @@ public sealed class DeploymentBuilderService : IDeploymentBuilder
         return long.Parse(value);
     }
 
-    private static V1ConfigMap BuildConfigMap(GameTemplate template, DeployServerRequest request, string ns)
+    private static Dictionary<string, string> MergeConfig(GameTemplate template, DeployServerRequest request)
     {
         var data = new Dictionary<string, string>(template.DefaultConfig);
 
@@ -127,6 +135,11 @@ public sealed class DeploymentBuilderService : IDeploymentBuilder
             }
         }
 
+        return data;
+    }
+
+    private static V1ConfigMap BuildConfigMap(Dictionary<string, string> mergedConfig, DeployServerRequest request, string ns)
+    {
         return new V1ConfigMap
         {
             ApiVersion = "v1",
@@ -136,7 +149,7 @@ public sealed class DeploymentBuilderService : IDeploymentBuilder
                 Name = ConfigMapNameFor(request.Name),
                 NamespaceProperty = ns
             },
-            Data = data
+            Data = mergedConfig
         };
     }
 
@@ -170,6 +183,7 @@ public sealed class DeploymentBuilderService : IDeploymentBuilder
     private static V1Deployment BuildDeployment(
         GameTemplate template,
         DeployServerRequest request,
+        string image,
         ResourceSpec resources,
         IReadOnlyList<PortMapping> ports,
         string ns,
@@ -210,6 +224,11 @@ public sealed class DeploymentBuilderService : IDeploymentBuilder
                 // Req 9.1 / design.md: game servers keep local state on disk;
                 // multiple replicas would corrupt it. Always exactly 1.
                 Replicas = 1,
+                // Recreate, not the default RollingUpdate: a rolling restart briefly
+                // runs old and new pods against the same RWO PVC (both fit on a
+                // single node), risking save/world corruption. Old pod must fully
+                // stop before the new one starts.
+                Strategy = new V1DeploymentStrategy { Type = "Recreate" },
                 Selector = new V1LabelSelector
                 {
                     MatchLabels = new Dictionary<string, string> { [AppLabel] = request.Name }
@@ -227,7 +246,7 @@ public sealed class DeploymentBuilderService : IDeploymentBuilder
                             new()
                             {
                                 Name = request.Name,
-                                Image = template.ImageTag,
+                                Image = image,
                                 Ports = containerPorts,
                                 EnvFrom = new List<V1EnvFromSource>
                                 {

@@ -4,6 +4,8 @@ import type {
   DeployServerRequest,
   GameTemplate,
   MetricsSnapshot,
+  MinecraftVersionsResponse,
+  ModrinthSearchResponse,
   NetworkInfo,
   RconCommandResponse,
   ServerDetail,
@@ -39,6 +41,21 @@ export const api = {
 
   listGames: (search?: string) =>
     http.get<GameTemplate[]>(`/api/games${search ? `?search=${encodeURIComponent(search)}` : ""}`),
+
+  minecraftVersions: (type: string) =>
+    http.get<MinecraftVersionsResponse>(`/api/minecraft/versions?type=${encodeURIComponent(type)}`),
+  minecraftContentSearch: (params: {
+    q?: string;
+    kind: "mod" | "plugin" | "modpack";
+    loader?: string;
+    mcVersion?: string;
+  }) => {
+    const search = new URLSearchParams({ kind: params.kind });
+    if (params.q) search.set("q", params.q);
+    if (params.loader) search.set("loader", params.loader);
+    if (params.mcVersion) search.set("mcVersion", params.mcVersion);
+    return http.get<ModrinthSearchResponse>(`/api/minecraft/content/search?${search}`);
+  },
 
   metrics: () => http.get<MetricsSnapshot>("/api/metrics"),
 

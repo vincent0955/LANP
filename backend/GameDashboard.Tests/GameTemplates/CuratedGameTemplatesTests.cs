@@ -89,6 +89,43 @@ public class CuratedGameTemplatesTests
     }
 
     [Fact]
+    public void Minecraft_Template_Is_MinecraftJava_Kind_With_No_Type_Or_Version_Defaults()
+    {
+        var mc = CuratedGameTemplates.Minecraft;
+
+        Assert.Equal(TemplateKind.MinecraftJava, mc.Kind);
+        // The deploy form owns TYPE/VERSION (sent as overrides only when they
+        // differ from itzg's defaults); a modpack deploy must not inherit a TYPE.
+        Assert.False(mc.DefaultConfig.ContainsKey("TYPE"));
+        Assert.False(mc.DefaultConfig.ContainsKey("VERSION"));
+        Assert.False(mc.DefaultConfig.ContainsKey("MODRINTH_MODPACK"));
+    }
+
+    [Fact]
+    public void Minecraft_Template_Aliases_Cover_Every_Java_Matrix_Image()
+    {
+        var aliases = CuratedGameTemplates.Minecraft.ImageTagAliases;
+
+        Assert.NotNull(aliases);
+        Assert.Contains(MinecraftJavaImage.Java8, aliases!);
+        Assert.Contains(MinecraftJavaImage.Java17, aliases!);
+        Assert.Contains(MinecraftJavaImage.Java21, aliases!);
+    }
+
+    [Fact]
+    public void ResolveByTag_Resolves_Aliases_And_Primary_Tags()
+    {
+        // Primary tag.
+        Assert.Same(CuratedGameTemplates.Rust, CuratedGameTemplates.ResolveByTag(CuratedGameTemplates.Rust.ImageTag));
+        // Alias tags — includes the retired modded template's java21, so
+        // existing modded deployments keep resolving to a template.
+        Assert.Same(CuratedGameTemplates.Minecraft, CuratedGameTemplates.ResolveByTag(MinecraftJavaImage.Java21));
+        Assert.Same(CuratedGameTemplates.Minecraft, CuratedGameTemplates.ResolveByTag(MinecraftJavaImage.Java8));
+        // Unknown.
+        Assert.Null(CuratedGameTemplates.ResolveByTag("some/unknown-image:latest"));
+    }
+
+    [Fact]
     public void All_Catalog_Is_Keyed_By_ImageTag_With_TwentyOne_Entries()
     {
         Assert.Equal(21, CuratedGameTemplates.All.Count);

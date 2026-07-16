@@ -13,6 +13,8 @@ export const queryKeys = {
   games: (search: string) => ["games", search] as const,
   metrics: ["metrics"] as const,
   network: ["network"] as const,
+  minecraftVersions: (type: string) => ["minecraft", "versions", type] as const,
+  minecraftSearch: (params: Record<string, string>) => ["minecraft", "search", params] as const,
 };
 
 // Health is the one polled query: it's the app's liveness heartbeat toward the
@@ -45,6 +47,42 @@ export function useServerConfig(name: string) {
 
 export function useGames(search: string) {
   return useQuery({ queryKey: queryKeys.games(search), queryFn: () => api.listGames(search) });
+}
+
+// Version lists change on Minecraft's release cadence, not ours — cache long and
+// don't hammer retries; the deploy form degrades to free-text on error.
+export function useMinecraftVersions(type: string | null) {
+  return useQuery({
+    queryKey: queryKeys.minecraftVersions(type ?? "none"),
+    queryFn: () => api.minecraftVersions(type as string),
+    enabled: type !== null,
+    staleTime: 30 * 60_000,
+    retry: 1,
+  });
+}
+
+export function useMinecraftContentSearch(params: {
+  q: string;
+  kind: "mod" | "plugin" | "modpack" | null;
+  loader?: string;
+  mcVersion?: string;
+}) {
+  const { q, kind, loader, mcVersion } = params;
+  return useQuery({
+    queryKey: queryKeys.minecraftSearch({
+      q,
+      kind: kind ?? "",
+      loader: loader ?? "",
+      mcVersion: mcVersion ?? "",
+    }),
+    queryFn: () => api.minecraftContentSearch({ q, kind: kind as "mod", loader, mcVersion }),
+    enabled: kind !== null,
+    staleTime: 5 * 60_000,
+    // Keep showing the previous hits while a new keystroke's search is in
+    // flight, so the results list doesn't flicker empty between queries.
+    placeholderData: (prev) => prev,
+    retry: 1,
+  });
 }
 
 export function useMetrics() {

@@ -88,6 +88,16 @@ builder.Services.AddSingleton<IRconService, RconService>();
 builder.Services.AddHttpClient();
 builder.Services.AddSingleton<IPublicIpService, PublicIpService>();
 
+// --- Minecraft deploy metadata (versions + Modrinth search, all keyless) ---
+builder.Services.AddMemoryCache();
+builder.Services.AddHttpClient<IMinecraftMetadataService, MinecraftMetadataService>(client =>
+{
+    client.Timeout = TimeSpan.FromSeconds(10);
+    // Modrinth's ToS requires a descriptive User-Agent identifying the project.
+    client.DefaultRequestHeaders.UserAgent.ParseAdd(
+        "game-dashboard/1.0 (github.com/vincent0955/source-server-cluster)");
+});
+
 // --- Auto-scaling (Phase 8) ---
 builder.Services.AddHostedService<AutoScaleService>();
 

@@ -20,4 +20,23 @@ public record GameTemplate(
     /// secretKeyRef rather than the ConfigMap (Req 6.4, Req 14.3). The dictionary
     /// value is the key name inside the Secret (may differ from the env var name).
     /// </summary>
-    IReadOnlyDictionary<string, string> SecretKeyRefs);
+    IReadOnlyDictionary<string, string> SecretKeyRefs,
+    /// <summary>
+    /// Discriminator for templates that get a specialized deploy experience in the
+    /// frontend and specialized manifest handling (e.g. the Minecraft Java version →
+    /// image matrix). Defaults keep every existing template Generic.
+    /// </summary>
+    TemplateKind Kind = TemplateKind.Generic,
+    /// <summary>
+    /// Additional image tags that resolve to this template in catalog lookups.
+    /// Deploys may run a variant image (Minecraft's per-Java-version tags) and
+    /// existing deployments may reference retired tags; both must keep resolving.
+    /// </summary>
+    IReadOnlyList<string>? ImageTagAliases = null);
+
+/// <summary>Serialized as a string (global JsonStringEnumConverter), e.g. "MinecraftJava".</summary>
+public enum TemplateKind
+{
+    Generic,
+    MinecraftJava
+}

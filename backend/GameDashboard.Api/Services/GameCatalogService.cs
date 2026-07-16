@@ -23,6 +23,5 @@ public sealed class GameCatalogService : IGameCatalogService
             .ToList();
     }
 
-    public GameTemplate? GetGameByTag(string tag) =>
-        CuratedGameTemplates.All.TryGetValue(tag, out var template) ? template : null;
+    public GameTemplate? GetGameByTag(string tag) => CuratedGameTemplates.ResolveByTag(tag);
 }

@@ -54,6 +54,8 @@ export interface TemplatePort {
   containerPort: number;
 }
 
+export type TemplateKind = "Generic" | "MinecraftJava";
+
 export interface GameTemplate {
   displayName: string;
   imageTag: string;
@@ -65,6 +67,30 @@ export interface GameTemplate {
   defaultConfig: Record<string, string>;
   /** Config keys sourced from the game-secrets Secret; not editable via config. */
   secretKeyRefs: Record<string, string>;
+  /** Discriminator for templates with a specialized deploy panel. */
+  kind: TemplateKind;
+  /** Variant image tags (e.g. Minecraft's per-Java tags) that resolve to this template. */
+  imageTagAliases: string[] | null;
+}
+
+/** Version list for one Minecraft server-software type, newest first. */
+export interface MinecraftVersionsResponse {
+  latest: string | null;
+  versions: string[];
+}
+
+/** Trimmed Modrinth search hit (GET /api/minecraft/content/search). */
+export interface ModrinthProjectHit {
+  slug: string;
+  title: string;
+  description: string;
+  iconUrl: string | null;
+  downloads: number;
+  projectType: string;
+}
+
+export interface ModrinthSearchResponse {
+  hits: ModrinthProjectHit[];
 }
 
 export interface ClusterHealth {

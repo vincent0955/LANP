@@ -1,4 +1,6 @@
 .kiro
+docs
+CLAUDE.md
 
 # .NET build output
 bin/

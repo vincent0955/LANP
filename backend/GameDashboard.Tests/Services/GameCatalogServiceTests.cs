@@ -51,7 +51,8 @@ public class GameCatalogServiceTests
     {
         var games = _service.GetGames(search);
 
-        // Both Minecraft editions match; results are alphabetical.
+        // All Minecraft variants match; results are alphabetical. (Modded is no
+        // longer a separate template — it's a server-software choice on Java.)
         Assert.Equal(2, games.Count);
         Assert.Equal("Minecraft (Bedrock Edition)", games[0].DisplayName);
         Assert.Equal("Minecraft (Java Edition)", games[1].DisplayName);
@@ -89,6 +90,17 @@ public class GameCatalogServiceTests
         var game = _service.GetGameByTag("some/unknown-image:latest");
 
         Assert.Null(game);
+    }
+
+    [Fact]
+    public void GetGameByTag_Resolves_Image_Aliases_To_The_Same_Template()
+    {
+        // Deployed Minecraft servers run per-Java variant images, not the
+        // catalog-key tag; lookups by those tags must still find the template.
+        var game = _service.GetGameByTag(MinecraftJavaImage.Java21);
+
+        Assert.NotNull(game);
+        Assert.Equal("Minecraft (Java Edition)", game!.DisplayName);
     }
 
     [Fact]

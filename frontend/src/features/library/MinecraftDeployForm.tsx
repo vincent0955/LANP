@@ -467,8 +467,8 @@ export function MinecraftDeployForm({ game, onClose }: { game: GameTemplate; onC
                 </div>
                 {secretKeys.length > 0 && (
                   <p className="text-xs text-muted-foreground">
-                    {secretKeys.join(", ")} come from the secrets store — configure them on the
-                    Setup screen.
+                    {secretKeys.join(", ")} are secrets — set them on the server's Secrets tab after
+                    it's created. The server won't start until they're set.
                   </p>
                 )}
               </>

@@ -116,7 +116,9 @@ public sealed partial class RconService : IRconService
 
             var (engine, queryCommand, secretKey) = ClassifyEngine(container.Config?.Image ?? "");
 
-            var password = await _secretsStore.GetValueAsync(secretKey, ct);
+            // RCON passwords are per-server secrets, stored under the server's scope.
+            var password = await _secretsStore.GetValueAsync(
+                ServerSecretKey.Scope(serverName, secretKey), ct);
             if (password is null)
             {
                 return null;

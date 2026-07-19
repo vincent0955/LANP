@@ -10,6 +10,7 @@ import type {
   RconCommandResponse,
   RuntimeStatus,
   ServerDetail,
+  ServerSecretInfo,
   ServerSummary,
   SetupStatus,
 } from "./types";
@@ -18,11 +19,6 @@ export const api = {
   health: () => http.get<ClusterHealth>("/api/health"),
 
   setupStatus: () => http.get<SetupStatus>("/api/setup/status"),
-  setSecrets: (values: Record<string, string>) => http.post<void>("/api/setup/secrets", values),
-  getSecretValue: (key: string) =>
-    http.get<{ value: string }>(`/api/setup/secrets/${encodeURIComponent(key)}/value`),
-  deleteSecretKey: (key: string) =>
-    http.del<void>(`/api/setup/secrets/${encodeURIComponent(key)}`),
 
   listServers: () => http.get<ServerSummary[]>("/api/servers"),
   getServer: (name: string) => http.get<ServerDetail>(`/api/servers/${encodeURIComponent(name)}`),
@@ -36,6 +32,19 @@ export const api = {
     http.get<Record<string, string>>(`/api/servers/${encodeURIComponent(name)}/config`),
   updateConfig: (name: string, values: Record<string, string>) =>
     http.put<void>(`/api/servers/${encodeURIComponent(name)}/config`, values),
+
+  getServerSecrets: (name: string) =>
+    http.get<ServerSecretInfo[]>(`/api/servers/${encodeURIComponent(name)}/secrets`),
+  setServerSecrets: (name: string, values: Record<string, string>) =>
+    http.post<void>(`/api/servers/${encodeURIComponent(name)}/secrets`, values),
+  getServerSecretValue: (name: string, key: string) =>
+    http.get<{ value: string }>(
+      `/api/servers/${encodeURIComponent(name)}/secrets/${encodeURIComponent(key)}/value`,
+    ),
+  deleteServerSecret: (name: string, key: string) =>
+    http.del<void>(
+      `/api/servers/${encodeURIComponent(name)}/secrets/${encodeURIComponent(key)}`,
+    ),
 
   sendRcon: (name: string, command: string) =>
     http.post<RconCommandResponse>(`/api/servers/${encodeURIComponent(name)}/rcon`, { command }),

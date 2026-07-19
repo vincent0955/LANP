@@ -1,5 +1,6 @@
 .kiro
 docs
+.claude
 CLAUDE.md
 
 # .NET build output

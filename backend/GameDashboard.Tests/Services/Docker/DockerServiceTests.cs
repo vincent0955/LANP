@@ -1,4 +1,5 @@
 using System.Net;
+using System.Text.Json;
 using Docker.DotNet;
 using Docker.DotNet.Models;
 using GameDashboard.Api.Configuration;
@@ -63,6 +64,11 @@ public class DockerServiceTests
                 factory.Setup(f => f.TryGetClientAsync(It.IsAny<CancellationToken>()))
                     .ReturnsAsync(((IDockerClient?)null, "engine unreachable"));
             }
+
+            // Default: an empty secrets store (as FileSecretsStore returns when
+            // no file exists) so delete's per-server secret cleanup can enumerate.
+            Secrets.Setup(s => s.GetKeysAsync(It.IsAny<CancellationToken>()))
+                .ReturnsAsync(new List<string>());
 
             // Default: probe says ready, so "running" maps straight to Running.
             Prober.Setup(p => p.IsReadyAsync(
@@ -133,6 +139,13 @@ public class DockerServiceTests
             HostConfig = new HostConfig(),
         };
     }
+
+    /// <summary>A stopped CS2 container carrying its template's secret-key refs.</summary>
+    private static ContainerInspectResponse Cs2Container(string name) =>
+        ManagedContainer(name, state: "exited", extraLabels: new Dictionary<string, string>
+        {
+            [ContainerLabels.SecretKeys] = JsonSerializer.Serialize(CuratedGameTemplates.Cs2.SecretKeyRefs),
+        });
 
     // --- health ---
 
@@ -338,22 +351,120 @@ public class DockerServiceTests
     }
 
     [Fact]
-    public async Task DeployServerAsync_Fails_Fast_With_A_Clear_Message_When_Secrets_Missing()
+    public async Task DeployServerAsync_Does_Not_Require_Secrets_Up_Front()
     {
-        // The k8s deploy silently created a pod that crashed at start time with
-        // CreateContainerConfigError; the Docker deploy checks the store up
-        // front and tells the user what to configure.
+        // Secrets are entered on the server's page after it exists, so a missing
+        // secret no longer blocks the deploy: the container is created and left
+        // stopped until the user sets it (ScaleServerAsync guards the start).
         var harness = new Harness(engineReachable: true);
         harness.SetupInspectNotFound("my-cs2");
-        harness.Secrets.Setup(s => s.GetValueAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()))
-            .ReturnsAsync((string?)null);
+        harness.SetupNoContainers();
+        // No SetupAllSecretsConfigured: the store returns null for every key.
         var request = new DeployServerRequest("my-cs2", CuratedGameTemplates.Cs2.ImageTag, null, null);
 
-        var ex = await Assert.ThrowsAsync<InvalidOperationException>(
-            () => harness.Service.DeployServerAsync(request, CancellationToken.None));
+        var detail = await harness.Service.DeployServerAsync(request, CancellationToken.None);
 
-        Assert.Contains("Missing secret value(s)", ex.Message);
-        Assert.Contains("Setup screen", ex.Message);
+        Assert.Equal(ServerStatus.Pending, detail.Status);
+    }
+
+    [Fact]
+    public async Task ScaleServerAsync_Refuses_To_Start_When_Required_Secrets_Are_Missing()
+    {
+        // The start guard replaces the k8s CreateContainerConfigError crash: it
+        // names exactly which secrets to set and points at the server's own tab.
+        var harness = new Harness(engineReachable: true);
+        harness.Containers
+            .Setup(c => c.InspectContainerAsync("my-cs2", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(ManagedContainer("my-cs2", state: "exited", extraLabels: new Dictionary<string, string>
+            {
+                [ContainerLabels.SecretKeys] = JsonSerializer.Serialize(
+                    new Dictionary<string, string> { ["SRCDS_TOKEN"] = "SRCDS_TOKEN" }),
+            }));
+
+        var ex = await Assert.ThrowsAsync<InvalidOperationException>(
+            () => harness.Service.ScaleServerAsync("my-cs2", 1, CancellationToken.None));
+
+        Assert.Contains("SRCDS_TOKEN", ex.Message);
+        Assert.Contains("Secrets tab", ex.Message);
+        // It must not have attempted to start a server that can't work.
+        harness.Containers.Verify(c => c.StartContainerAsync(
+            It.IsAny<string>(), It.IsAny<ContainerStartParameters>(), It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    // --- per-server secrets ---
+
+    [Fact]
+    public async Task GetServerSecretsAsync_Lists_Template_Keys_With_Configured_Flags()
+    {
+        var harness = new Harness(engineReachable: true);
+        harness.Containers.Setup(c => c.InspectContainerAsync("my-cs2", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(Cs2Container("my-cs2"));
+        // Only SRCDS_TOKEN is set for this server; CS2_RCONPW is not.
+        harness.Secrets.Setup(s => s.GetValueAsync("my-cs2/SRCDS_TOKEN", It.IsAny<CancellationToken>()))
+            .ReturnsAsync("token");
+
+        var secrets = await harness.Service.GetServerSecretsAsync("my-cs2", CancellationToken.None);
+
+        Assert.Equal(new[] { "CS2_RCONPW", "SRCDS_TOKEN" }, secrets.Select(s => s.Key));
+        Assert.True(secrets.Single(s => s.Key == "SRCDS_TOKEN").Configured);
+        Assert.False(secrets.Single(s => s.Key == "CS2_RCONPW").Configured);
+    }
+
+    [Fact]
+    public async Task SetServerSecretsAsync_Rejects_A_Key_The_Server_Does_Not_Use()
+    {
+        var harness = new Harness(engineReachable: true);
+        harness.Containers.Setup(c => c.InspectContainerAsync("my-cs2", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(Cs2Container("my-cs2"));
+
+        await Assert.ThrowsAsync<ArgumentException>(
+            () => harness.Service.SetServerSecretsAsync(
+                "my-cs2", new Dictionary<string, string> { ["NOT_A_KEY"] = "x" }, CancellationToken.None));
+
+        harness.Secrets.Verify(s => s.SetAsync(
+            It.IsAny<IDictionary<string, string>>(), It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task SetServerSecretsAsync_Stores_Under_The_Server_Scope_And_Recreates()
+    {
+        var harness = new Harness(engineReachable: true);
+        harness.Containers.Setup(c => c.InspectContainerAsync("my-cs2", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(Cs2Container("my-cs2"));
+
+        await harness.Service.SetServerSecretsAsync(
+            "my-cs2", new Dictionary<string, string> { ["SRCDS_TOKEN"] = "abc" }, CancellationToken.None);
+
+        harness.Secrets.Verify(s => s.SetAsync(
+            It.Is<IDictionary<string, string>>(d =>
+                d.ContainsKey("my-cs2/SRCDS_TOKEN") && d["my-cs2/SRCDS_TOKEN"] == "abc"),
+            It.IsAny<CancellationToken>()), Times.Once);
+        // Recreate so the new env is injected = remove then create.
+        harness.Containers.Verify(c => c.RemoveContainerAsync(
+            "my-cs2", It.IsAny<ContainerRemoveParameters>(), It.IsAny<CancellationToken>()), Times.Once);
+        harness.Containers.Verify(c => c.CreateContainerAsync(
+            It.IsAny<CreateContainerParameters>(), It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    [Fact]
+    public async Task GetServerSecretValueAsync_Reads_The_Server_Scoped_Value()
+    {
+        var harness = new Harness(engineReachable: true);
+        harness.Secrets.Setup(s => s.GetValueAsync("my-cs2/SRCDS_TOKEN", It.IsAny<CancellationToken>()))
+            .ReturnsAsync("the-token");
+
+        Assert.Equal(
+            "the-token",
+            await harness.Service.GetServerSecretValueAsync("my-cs2", "SRCDS_TOKEN", CancellationToken.None));
+    }
+
+    [Fact]
+    public async Task GetServerSecretValueAsync_Throws_KeyNotFound_When_Unset()
+    {
+        var harness = new Harness(engineReachable: true);
+        // Loose mock returns null for an unset key.
+        await Assert.ThrowsAsync<KeyNotFoundException>(
+            () => harness.Service.GetServerSecretValueAsync("my-cs2", "SRCDS_TOKEN", CancellationToken.None));
     }
 
     [Fact]

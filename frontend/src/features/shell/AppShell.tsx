@@ -1,8 +1,6 @@
 import { NavLink, Outlet } from "react-router-dom";
 import { Gamepad2, LayoutGrid, Rocket, Settings, Wrench } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { useHealth } from "@/api/queries";
-import { useConnectionStore } from "@/realtime/connectionStore";
 
 const navItems = [
   { to: "/", label: "Servers", icon: LayoutGrid, end: true },
@@ -11,30 +9,6 @@ const navItems = [
   { to: "/setup", label: "Setup", icon: Wrench, end: false },
   { to: "/settings", label: "Settings", icon: Settings, end: false },
 ];
-
-function ConnectionIndicator() {
-  const health = useHealth();
-  const hubState = useConnectionStore((s) => s.hubState);
-
-  const restOk = health.isSuccess;
-  const hubOk = hubState === "connected";
-
-  const dot = (ok: boolean, pending: boolean) =>
-    cn("size-2 rounded-full", ok ? "bg-emerald-500" : pending ? "bg-amber-500 animate-pulse" : "bg-destructive");
-
-  return (
-    <div className="space-y-1.5 border-t px-4 py-3 text-xs text-muted-foreground">
-      <div className="flex items-center gap-2">
-        <span className={dot(restOk, health.isPending)} />
-        <span>API {restOk ? "connected" : health.isPending ? "connecting…" : "unreachable"}</span>
-      </div>
-      <div className="flex items-center gap-2">
-        <span className={dot(hubOk, hubState === "connecting" || hubState === "reconnecting")} />
-        <span>Live updates {hubOk ? "on" : hubState}</span>
-      </div>
-    </div>
-  );
-}
 
 export function AppShell() {
   return (
@@ -64,7 +38,6 @@ export function AppShell() {
             </NavLink>
           ))}
         </nav>
-        <ConnectionIndicator />
       </aside>
       <main className="flex-1 overflow-y-auto">
         <Outlet />

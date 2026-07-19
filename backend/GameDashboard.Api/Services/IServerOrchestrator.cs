@@ -48,28 +48,39 @@ public interface IServerOrchestrator
     Task SetLastActiveAsync(string name, DateTimeOffset timestamp, CancellationToken ct);
 
     /// <summary>
-    /// Full first-run setup/readiness snapshot: engine reachability, metrics
-    /// availability, and configured secrets. Never throws.
+    /// Full first-run setup/readiness snapshot: engine reachability and metrics
+    /// availability. Never throws.
     /// </summary>
     Task<SetupStatus> GetSetupStatusAsync(CancellationToken ct);
 
     /// <summary>
-    /// Creates or updates secrets in the local encrypted store. Values are
-    /// never returned in bulk or logged; reading a value back requires an
-    /// explicit per-key request via <see cref="GetSecretValueAsync"/>.
+    /// Lists the secrets a server's game template requires (the store keys from
+    /// its secretKeyRefs) and whether each currently has a value set for this
+    /// server. Never returns the values themselves. Throws
+    /// <see cref="Exceptions.ServerNotFoundException"/> (→ 404) when the server
+    /// does not exist.
     /// </summary>
-    Task SetSecretsAsync(IDictionary<string, string> values, CancellationToken ct);
+    Task<IReadOnlyList<ServerSecretInfo>> GetServerSecretsAsync(string name, CancellationToken ct);
+
+    /// <summary>
+    /// Sets one or more of a server's secrets in the local encrypted store and
+    /// recreates the container so the new values take effect. Only keys the
+    /// server's template references are accepted (others → 400). Values are
+    /// never returned in bulk or logged.
+    /// </summary>
+    Task SetServerSecretsAsync(string name, IDictionary<string, string> values, CancellationToken ct);
 
     /// <summary>
     /// Reads a single secret value for click-to-reveal in the UI. Throws
-    /// <see cref="KeyNotFoundException"/> (→ 404) when the key does not exist.
+    /// <see cref="KeyNotFoundException"/> (→ 404) when no value is set for that
+    /// key on this server.
     /// </summary>
-    Task<string> GetSecretValueAsync(string key, CancellationToken ct);
+    Task<string> GetServerSecretValueAsync(string name, string key, CancellationToken ct);
 
     /// <summary>
-    /// Removes a single secret key. Throws <see cref="KeyNotFoundException"/>
-    /// (→ 404) when the key does not exist; keys referenced by a curated game
-    /// template are rejected with <see cref="InvalidOperationException"/> (→ 409).
+    /// Clears a single secret for a server and recreates the container so the
+    /// value stops being injected. Throws <see cref="KeyNotFoundException"/>
+    /// (→ 404) when no value is set for that key on this server.
     /// </summary>
-    Task DeleteSecretKeyAsync(string key, CancellationToken ct);
+    Task DeleteServerSecretAsync(string name, string key, CancellationToken ct);
 }

@@ -102,52 +102,86 @@ public sealed class DockerService : IServerOrchestrator
         // exactly when the engine is.
         var metricsAvailable = health.ClusterReachable;
 
-        var configuredSecretKeys = await _secretsStore.GetKeysAsync(ct);
-        var secretsConfigured = configuredSecretKeys.Count > 0;
-        if (!secretsConfigured)
-        {
-            warnings.Add(
-                "No secrets are configured yet. Use POST /api/setup/secrets to configure " +
-                "RCON passwords and the CS2 Steam Game Server Login Token.");
-        }
-
         return new SetupStatus(
             DockerEngineReachable: health.ClusterReachable,
             MetricsAvailable: metricsAvailable,
-            SecretsConfigured: secretsConfigured,
-            ConfiguredSecretKeys: configuredSecretKeys,
             Warnings: warnings);
     }
 
-    // --- secrets (local encrypted store) ---
+    // --- per-server secrets (local encrypted store, namespaced by server) ---
 
-    public Task SetSecretsAsync(IDictionary<string, string> values, CancellationToken ct) =>
-        _secretsStore.SetAsync(values, ct);
-
-    public async Task<string> GetSecretValueAsync(string key, CancellationToken ct)
+    public async Task<IReadOnlyList<ServerSecretInfo>> GetServerSecretsAsync(string name, CancellationToken ct)
     {
-        // Deliberately not logged: the value leaves the process only in the
-        // HTTP response to the explicit reveal request.
-        return await _secretsStore.GetValueAsync(key, ct)
-            ?? throw new KeyNotFoundException($"Secret key '{key}' is not configured.");
+        var client = await RequireClientAsync(ct);
+        return await RunAsync(async () =>
+        {
+            var container = await InspectOrThrowAsync(client, name, ct);
+            var storeKeys = SecretKeyRefsOf(container.Config?.Labels).Values
+                .Distinct(StringComparer.Ordinal)
+                .OrderBy(k => k, StringComparer.Ordinal);
+
+            var result = new List<ServerSecretInfo>();
+            foreach (var key in storeKeys)
+            {
+                var value = await _secretsStore.GetValueAsync(ServerSecretKey.Scope(name, key), ct);
+                result.Add(new ServerSecretInfo(key, value is not null));
+            }
+            return (IReadOnlyList<ServerSecretInfo>)result;
+        });
     }
 
-    public async Task DeleteSecretKeyAsync(string key, CancellationToken ct)
+    public async Task SetServerSecretsAsync(string name, IDictionary<string, string> values, CancellationToken ct)
     {
-        // Keys referenced by a curated template are protected: deploys inject
-        // them as required env vars, so deleting one would leave servers of
-        // that game unable to start. Maps to 409 Conflict.
-        if (CuratedGameTemplates.All.Values.Any(t => t.SecretKeyRefs.Values.Contains(key)))
+        var client = await RequireClientAsync(ct);
+        await RunAsync(async () =>
         {
-            throw new InvalidOperationException(
-                $"'{key}' is referenced by a game template; deleting it would prevent servers " +
-                "of that game from starting. Overwrite its value instead.");
-        }
+            var container = await InspectOrThrowAsync(client, name, ct);
+            var allowed = new HashSet<string>(
+                SecretKeyRefsOf(container.Config?.Labels).Values, StringComparer.Ordinal);
 
-        if (!await _secretsStore.DeleteAsync(key, ct))
+            foreach (var key in values.Keys)
+            {
+                if (!allowed.Contains(key))
+                {
+                    throw new ArgumentException(
+                        $"'{key}' is not a secret used by server '{name}'. " +
+                        $"Allowed keys: {string.Join(", ", allowed.OrderBy(k => k, StringComparer.Ordinal))}.");
+                }
+            }
+
+            // Store under the per-server scope, then recreate the container so
+            // the new value is injected (Docker can't change env in place).
+            var scoped = values.ToDictionary(
+                kv => ServerSecretKey.Scope(name, kv.Key), kv => kv.Value, StringComparer.Ordinal);
+            await _secretsStore.SetAsync(scoped, ct);
+
+            await RecreateWithSecretsAsync(client, name, container, ConfigOf(container.Config!.Labels!), ct);
+            return true;
+        });
+    }
+
+    public async Task<string> GetServerSecretValueAsync(string name, string key, CancellationToken ct)
+    {
+        // Reads the store directly (no engine call needed): the value leaves the
+        // process only in the HTTP response to this explicit reveal request.
+        return await _secretsStore.GetValueAsync(ServerSecretKey.Scope(name, key), ct)
+            ?? throw new KeyNotFoundException($"No value is set for secret '{key}' on server '{name}'.");
+    }
+
+    public async Task DeleteServerSecretAsync(string name, string key, CancellationToken ct)
+    {
+        var client = await RequireClientAsync(ct);
+        await RunAsync(async () =>
         {
-            throw new KeyNotFoundException($"Secret key '{key}' is not configured.");
-        }
+            var container = await InspectOrThrowAsync(client, name, ct);
+            if (!await _secretsStore.DeleteAsync(ServerSecretKey.Scope(name, key), ct))
+            {
+                throw new KeyNotFoundException($"No value is set for secret '{key}' on server '{name}'.");
+            }
+
+            await RecreateWithSecretsAsync(client, name, container, ConfigOf(container.Config!.Labels!), ct);
+            return true;
+        });
     }
 
     // --- last-active (local file) ---
@@ -295,9 +329,12 @@ public sealed class DockerService : IServerOrchestrator
                 // Good — does not exist yet.
             }
 
-            // Fail fast on missing secrets with a clear message instead of the
-            // k8s-era CreateContainerConfigError crash at start time.
-            var secretEnv = await ResolveSecretEnvAsync(template.SecretKeyRefs, ct);
+            // Secrets are entered on the server's page after it exists, so a
+            // deploy no longer requires them: bake in whatever is already set
+            // and, when required secrets are still missing, create the container
+            // but leave it stopped rather than starting a server that can't work.
+            var (secretEnv, missingSecrets) = await ResolveSecretEnvAsync(request.Name, template.SecretKeyRefs, ct);
+            var startAfterCreate = missingSecrets.Count == 0;
 
             var modpackMcVersion = await ResolveModpackMinecraftVersionAsync(template, request, ct);
             var usedPorts = await GatherUsedHostPortsAsync(client, ct);
@@ -316,7 +353,7 @@ public sealed class DockerService : IServerOrchestrator
 
             // The pull can take minutes on first deploy; run it detached from
             // the HTTP request. The tracker keeps the server visible meanwhile.
-            _ = Task.Run(() => RunDeployInBackgroundAsync(client, spec), CancellationToken.None);
+            _ = Task.Run(() => RunDeployInBackgroundAsync(client, spec, startAfterCreate), CancellationToken.None);
 
             _logger.LogInformation(
                 "Accepted deploy of server {Name} from image {Image}; pull/create running in background.",
@@ -371,7 +408,8 @@ public sealed class DockerService : IServerOrchestrator
         return version;
     }
 
-    private async Task RunDeployInBackgroundAsync(IDockerClient client, ContainerServerSpec spec)
+    private async Task RunDeployInBackgroundAsync(
+        IDockerClient client, ContainerServerSpec spec, bool startAfterCreate)
     {
         try
         {
@@ -390,11 +428,17 @@ public sealed class DockerService : IServerOrchestrator
             }, CancellationToken.None);
 
             await client.Containers.CreateContainerAsync(spec.CreateParameters, CancellationToken.None);
-            await client.Containers.StartContainerAsync(
-                spec.Name, new ContainerStartParameters(), CancellationToken.None);
+
+            if (startAfterCreate)
+            {
+                await client.Containers.StartContainerAsync(
+                    spec.Name, new ContainerStartParameters(), CancellationToken.None);
+            }
 
             _deployTracker.Remove(spec.Name);
-            _logger.LogInformation("Deployed server {Name} from image {Image}.", spec.Name, spec.Image);
+            _logger.LogInformation(
+                "Deployed server {Name} from image {Image} (started={Started}).",
+                spec.Name, spec.Image, startAfterCreate);
         }
         catch (Exception ex)
         {
@@ -443,6 +487,18 @@ public sealed class DockerService : IServerOrchestrator
 
             if (replicas == 1)
             {
+                // Required secrets are entered on the server's page after deploy;
+                // refuse to start (409) until they are all set, with a message
+                // naming exactly what is missing.
+                var (_, missingSecrets) = await ResolveSecretEnvAsync(
+                    name, SecretKeyRefsOf(container.Config?.Labels), ct);
+                if (missingSecrets.Count > 0)
+                {
+                    throw new InvalidOperationException(
+                        $"Can't start '{name}': set the required secret(s) " +
+                        $"{string.Join(", ", missingSecrets)} on the server's Secrets tab first.");
+                }
+
                 var resources = ResourcesOf(container.Config?.Labels);
                 if (!string.IsNullOrEmpty(resources?.MemoryRequest))
                 {
@@ -496,10 +552,27 @@ public sealed class DockerService : IServerOrchestrator
             }
 
             await _lastActiveStore.RemoveAsync(name, ct);
+            await RemoveServerSecretsAsync(name, ct);
 
             _logger.LogInformation("Deleted server {Name} (deleteData={DeleteData}).", name, deleteData);
             return true;
         });
+    }
+
+    /// <summary>
+    /// Drops every secret scoped to a server so a later deploy that reuses the
+    /// name starts from a clean slate rather than inheriting stale values.
+    /// </summary>
+    private async Task RemoveServerSecretsAsync(string name, CancellationToken ct)
+    {
+        var prefix = ServerSecretKey.Prefix(name);
+        foreach (var key in await _secretsStore.GetKeysAsync(ct))
+        {
+            if (key.StartsWith(prefix, StringComparison.Ordinal))
+            {
+                await _secretsStore.DeleteAsync(key, ct);
+            }
+        }
     }
 
     public async Task UpdateConfigAsync(string name, IDictionary<string, string> values, CancellationToken ct)
@@ -524,70 +597,79 @@ public sealed class DockerService : IServerOrchestrator
                 config[key] = value;
             }
 
-            // Docker containers can't change env in place: recreate with the
-            // same volume, same ports, same resources — the Docker equivalent
-            // of the k8s rolling restart on config change, except Recreate-style
-            // (old process fully stops before the new one starts, which is what
-            // a single data volume needs anyway).
-            var ports = PortsOf(labels);
-            var resources = ResourcesOf(labels);
-            var secretKeyRefs = SecretKeyRefsOf(labels);
-            var secretEnv = await ResolveSecretEnvAsync(secretKeyRefs, ct);
-            var wasRunning = container.State?.Running == true || container.State?.Status == "restarting";
+            await RecreateWithSecretsAsync(client, name, container, config, ct);
 
-            var newLabels = new Dictionary<string, string>(labels)
-            {
-                [ContainerLabels.Config] = JsonSerializer.Serialize(config),
-            };
-
-            var create = new CreateContainerParameters
-            {
-                Name = name,
-                Image = container.Config.Image,
-                Env = config.Select(kv => $"{kv.Key}={kv.Value}")
-                    .Concat(secretEnv.Select(kv => $"{kv.Key}={kv.Value}"))
-                    .ToList(),
-                Labels = newLabels,
-                ExposedPorts = ports.ToDictionary(
-                    p => $"{p.ContainerPort}/{p.Protocol.ToLowerInvariant()}",
-                    _ => default(EmptyStruct)),
-                HostConfig = new HostConfig
-                {
-                    PortBindings = ports.ToDictionary(
-                        p => $"{p.ContainerPort}/{p.Protocol.ToLowerInvariant()}",
-                        p => (IList<PortBinding>)new List<PortBinding>
-                        {
-                            new() { HostPort = p.NodePort.ToString() }
-                        }),
-                    Mounts = new List<Mount>
-                    {
-                        new()
-                        {
-                            Type = "volume",
-                            Source = ContainerSpecBuilder.VolumeNameFor(name),
-                            Target = labels.TryGetValue(ContainerLabels.DataMount, out var mount) ? mount : "/data",
-                        }
-                    },
-                    RestartPolicy = new RestartPolicy { Name = RestartPolicyKind.UnlessStopped },
-                    Memory = container.HostConfig?.Memory ?? 0,
-                    MemoryReservation = container.HostConfig?.MemoryReservation ?? 0,
-                    NanoCPUs = container.HostConfig?.NanoCPUs ?? 0,
-                },
-            };
-
-            await client.Containers.RemoveContainerAsync(
-                name, new ContainerRemoveParameters { Force = true }, ct);
-            await client.Containers.CreateContainerAsync(create, ct);
-            if (wasRunning)
-            {
-                await client.Containers.StartContainerAsync(name, new ContainerStartParameters(), ct);
-            }
-
-            _logger.LogInformation(
-                "Updated config for server {Name} and recreated its container (running={Running}).",
-                name, wasRunning);
+            _logger.LogInformation("Updated config for server {Name} and recreated its container.", name);
             return true;
         });
+    }
+
+    /// <summary>
+    /// Recreates a server's container from its current labels with the given
+    /// config and freshly-resolved secret env, preserving its running state.
+    /// Docker can't change env in place, so config and secret changes both go
+    /// through this recreate. Secret resolution is lenient (bakes in whatever is
+    /// set) — start is the gate that enforces required secrets.
+    /// </summary>
+    private async Task RecreateWithSecretsAsync(
+        IDockerClient client,
+        string name,
+        ContainerInspectResponse container,
+        IReadOnlyDictionary<string, string> config,
+        CancellationToken ct)
+    {
+        var labels = container.Config!.Labels!;
+        var ports = PortsOf(labels);
+        var (secretEnv, _) = await ResolveSecretEnvAsync(name, SecretKeyRefsOf(labels), ct);
+        var wasRunning = container.State?.Running == true || container.State?.Status == "restarting";
+
+        var newLabels = new Dictionary<string, string>(labels)
+        {
+            [ContainerLabels.Config] = JsonSerializer.Serialize(config),
+        };
+
+        var create = new CreateContainerParameters
+        {
+            Name = name,
+            Image = container.Config.Image,
+            Env = config.Select(kv => $"{kv.Key}={kv.Value}")
+                .Concat(secretEnv.Select(kv => $"{kv.Key}={kv.Value}"))
+                .ToList(),
+            Labels = newLabels,
+            ExposedPorts = ports.ToDictionary(
+                p => $"{p.ContainerPort}/{p.Protocol.ToLowerInvariant()}",
+                _ => default(EmptyStruct)),
+            HostConfig = new HostConfig
+            {
+                PortBindings = ports.ToDictionary(
+                    p => $"{p.ContainerPort}/{p.Protocol.ToLowerInvariant()}",
+                    p => (IList<PortBinding>)new List<PortBinding>
+                    {
+                        new() { HostPort = p.NodePort.ToString() }
+                    }),
+                Mounts = new List<Mount>
+                {
+                    new()
+                    {
+                        Type = "volume",
+                        Source = ContainerSpecBuilder.VolumeNameFor(name),
+                        Target = labels.TryGetValue(ContainerLabels.DataMount, out var mount) ? mount : "/data",
+                    }
+                },
+                RestartPolicy = new RestartPolicy { Name = RestartPolicyKind.UnlessStopped },
+                Memory = container.HostConfig?.Memory ?? 0,
+                MemoryReservation = container.HostConfig?.MemoryReservation ?? 0,
+                NanoCPUs = container.HostConfig?.NanoCPUs ?? 0,
+            },
+        };
+
+        await client.Containers.RemoveContainerAsync(
+            name, new ContainerRemoveParameters { Force = true }, ct);
+        await client.Containers.CreateContainerAsync(create, ct);
+        if (wasRunning)
+        {
+            await client.Containers.StartContainerAsync(name, new ContainerStartParameters(), ct);
+        }
     }
 
     // --- shared plumbing ---
@@ -676,15 +758,21 @@ public sealed class DockerService : IServerOrchestrator
         }
     }
 
-    private async Task<Dictionary<string, string>> ResolveSecretEnvAsync(
-        IReadOnlyDictionary<string, string> secretKeyRefs, CancellationToken ct)
+    /// <summary>
+    /// Resolves a server's secret env vars from the per-server scope of the
+    /// store. Never throws on a missing value — it returns which store keys had
+    /// none, so callers decide what to do: deploy/recreate bake in whatever is
+    /// set (partial is fine), while start refuses until nothing is missing.
+    /// </summary>
+    private async Task<(Dictionary<string, string> Env, List<string> Missing)> ResolveSecretEnvAsync(
+        string serverName, IReadOnlyDictionary<string, string> secretKeyRefs, CancellationToken ct)
     {
         var env = new Dictionary<string, string>();
         var missing = new List<string>();
 
         foreach (var (envName, storeKey) in secretKeyRefs)
         {
-            var value = await _secretsStore.GetValueAsync(storeKey, ct);
+            var value = await _secretsStore.GetValueAsync(ServerSecretKey.Scope(serverName, storeKey), ct);
             if (value is null)
             {
                 missing.Add(storeKey);
@@ -695,14 +783,7 @@ public sealed class DockerService : IServerOrchestrator
             }
         }
 
-        if (missing.Count > 0)
-        {
-            throw new InvalidOperationException(
-                $"Missing secret value(s): {string.Join(", ", missing)}. " +
-                "Configure them on the Setup screen before deploying this game.");
-        }
-
-        return env;
+        return (env, missing);
     }
 
     private static async Task<IReadOnlySet<int>> GatherUsedHostPortsAsync(

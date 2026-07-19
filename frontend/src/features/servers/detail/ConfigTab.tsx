@@ -1,5 +1,4 @@
 import { useEffect, useState } from "react";
-import { Link } from "react-router-dom";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -76,8 +75,8 @@ export function ConfigTab({ serverName }: { serverName: string }) {
       </div>
 
       <p className="text-xs text-muted-foreground">
-        Sensitive values (Steam tokens, RCON passwords) are not listed here — they live in the
-        secrets store, managed on the <Link className="underline" to="/setup">Setup screen</Link>.
+        Sensitive values (Steam tokens, RCON passwords) are not listed here — for games that use them,
+        they're managed on this server's Secrets tab.
       </p>
     </div>
   );

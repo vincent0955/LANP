@@ -10,6 +10,7 @@ export const queryKeys = {
   servers: ["servers"] as const,
   server: (name: string) => ["servers", name] as const,
   config: (name: string) => ["servers", name, "config"] as const,
+  serverSecrets: (name: string) => ["servers", name, "secrets"] as const,
   games: (search: string) => ["games", search] as const,
   metrics: ["metrics"] as const,
   network: ["network"] as const,
@@ -173,18 +174,32 @@ export function useEnableMirroredNetworking() {
   });
 }
 
-export function useSetSecrets() {
-  const queryClient = useQueryClient();
-  return useMutation({
-    mutationFn: (values: Record<string, string>) => api.setSecrets(values),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: queryKeys.setup }),
+export function useServerSecrets(name: string) {
+  return useQuery({
+    queryKey: queryKeys.serverSecrets(name),
+    queryFn: () => api.getServerSecrets(name),
   });
 }
 
-export function useDeleteSecretKey() {
+export function useSetServerSecrets(name: string) {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (key: string) => api.deleteSecretKey(key),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: queryKeys.setup }),
+    mutationFn: (values: Record<string, string>) => api.setServerSecrets(name, values),
+    onSuccess: () => {
+      // The container is recreated on set, so its status can change too.
+      queryClient.invalidateQueries({ queryKey: queryKeys.serverSecrets(name) });
+      queryClient.invalidateQueries({ queryKey: queryKeys.server(name) });
+    },
+  });
+}
+
+export function useDeleteServerSecret(name: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (key: string) => api.deleteServerSecret(name, key),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.serverSecrets(name) });
+      queryClient.invalidateQueries({ queryKey: queryKeys.server(name) });
+    },
   });
 }

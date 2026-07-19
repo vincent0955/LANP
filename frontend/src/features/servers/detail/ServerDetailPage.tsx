@@ -6,19 +6,24 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { StatusBadge } from "@/components/StatusBadge";
-import { useScaleServer, useServer } from "@/api/queries";
+import { useScaleServer, useServer, useServerSecrets } from "@/api/queries";
 import { toastApiError } from "@/lib/errors";
 import { DeleteServerDialog } from "../DeleteServerDialog";
 import { OverviewTab } from "./OverviewTab";
 import { ConfigTab } from "./ConfigTab";
 import { LogsTab } from "./LogsTab";
 import { RconTab } from "./RconTab";
+import { ServerSecretsTab } from "./ServerSecretsTab";
 
 export function ServerDetailPage() {
   const { name = "" } = useParams();
   const navigate = useNavigate();
   const server = useServer(name);
   const scale = useScaleServer(name);
+  // Only games whose template declares secretKeyRefs get a Secrets tab; the list
+  // is empty for everything else, so the tab stays hidden.
+  const secrets = useServerSecrets(name);
+  const hasSecrets = (secrets.data?.length ?? 0) > 0;
   const [deleting, setDeleting] = useState(false);
 
   if (server.isPending) {
@@ -88,6 +93,7 @@ export function ServerDetailPage() {
         <TabsList>
           <TabsTrigger value="overview">Overview</TabsTrigger>
           <TabsTrigger value="config">Config</TabsTrigger>
+          {hasSecrets && <TabsTrigger value="secrets">Secrets</TabsTrigger>}
           <TabsTrigger value="logs">Logs</TabsTrigger>
           <TabsTrigger value="rcon">RCON</TabsTrigger>
         </TabsList>
@@ -97,6 +103,11 @@ export function ServerDetailPage() {
         <TabsContent value="config" className="mt-4">
           <ConfigTab serverName={data.name} />
         </TabsContent>
+        {hasSecrets && (
+          <TabsContent value="secrets" className="mt-4">
+            <ServerSecretsTab serverName={data.name} />
+          </TabsContent>
+        )}
         <TabsContent value="logs" className="mt-4">
           <LogsTab serverName={data.name} />
         </TabsContent>

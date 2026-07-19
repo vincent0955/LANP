@@ -42,11 +42,8 @@ public class ApiContractTests
     {
         var json = await GetJsonAsync("/api/setup/status");
 
-        AssertHasProperties(json,
-            "dockerEngineReachable", "metricsAvailable",
-            "secretsConfigured", "configuredSecretKeys", "warnings");
+        AssertHasProperties(json, "dockerEngineReachable", "metricsAvailable", "warnings");
 
-        Assert.Equal(JsonValueKind.Array, json.GetProperty("configuredSecretKeys").ValueKind);
         Assert.Equal(JsonValueKind.Array, json.GetProperty("warnings").ValueKind);
     }
 

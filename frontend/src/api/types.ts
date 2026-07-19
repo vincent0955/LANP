@@ -113,10 +113,16 @@ export interface SetupStatus {
   dockerEngineReachable: boolean;
   /** Metrics come from docker stats, so this tracks engine reachability. */
   metricsAvailable: boolean;
-  secretsConfigured: boolean;
-  /** Key names present in the local secrets store; values are never exposed. */
-  configuredSecretKeys: string[];
   warnings: string[];
+}
+
+/**
+ * One secret a server's game requires, with whether a value is set for this
+ * server (GET /api/servers/{name}/secrets). Values are never included here.
+ */
+export interface ServerSecretInfo {
+  key: string;
+  configured: boolean;
 }
 
 /** Where the bundled-runtime install currently is (RuntimeSetupService). */

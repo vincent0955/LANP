@@ -31,3 +31,11 @@ public record ServerDetail(
 /// Player/map info reported via RCON. Placeholder record until Phase 6 (RconService).
 /// </summary>
 public record PlayerInfo(int CurrentPlayers, int MaxPlayers, string? CurrentMap);
+
+/// <summary>
+/// One secret a server's game template requires (a store key from its
+/// secretKeyRefs), plus whether a value is currently set for this server.
+/// Values themselves are never included — reading one back requires an explicit
+/// per-key reveal request.
+/// </summary>
+public record ServerSecretInfo(string Key, bool Configured);

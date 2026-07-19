@@ -3,6 +3,8 @@ using GameDashboard.Api.Hubs;
 using GameDashboard.Api.Middleware;
 using GameDashboard.Api.RealTime;
 using GameDashboard.Api.Services;
+using GameDashboard.Api.Services.Docker;
+using GameDashboard.Api.Services.Runtime;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -62,11 +64,20 @@ builder.Services.AddCors(options =>
             .AllowAnyMethod()
             .AllowCredentials()));
 
-// --- Kubernetes connectivity (Phase 2) ---
-builder.Services.AddSingleton<IKubernetesClientFactory, KubernetesClientFactory>();
-builder.Services.AddScoped<IKubernetesService, KubernetesService>();
-builder.Services.AddSingleton<IDeploymentBuilder, DeploymentBuilderService>();
+// --- Docker Engine connectivity (docs/docker-migration.md) ---
+builder.Services.AddSingleton<IDockerClientFactory, DockerClientFactory>();
+builder.Services.AddScoped<IServerOrchestrator, DockerService>();
+builder.Services.AddSingleton<IContainerSpecBuilder, ContainerSpecBuilder>();
+builder.Services.AddSingleton<DeployTracker>();
+builder.Services.AddSingleton<ISecretsStore, FileSecretsStore>();
+builder.Services.AddSingleton<ILastActiveStore, LastActiveStore>();
+builder.Services.AddSingleton<ITcpReadinessProber, TcpReadinessProber>();
 builder.Services.AddSingleton<IGameCatalogService, GameCatalogService>();
+
+// --- Bundled runtime first-run flow (docs/docker-migration.md → Part 2) ---
+builder.Services.AddSingleton<IWslRunner, WslRunner>();
+builder.Services.AddSingleton<IRuntimeSetupService, RuntimeSetupService>();
+builder.Services.AddHostedService<RuntimeAutoStartService>();
 
 // --- Real-time (Phase 5) ---
 builder.Services.AddSignalR()
@@ -74,11 +85,11 @@ builder.Services.AddSignalR()
         options.PayloadSerializerOptions.Converters.Add(
             new System.Text.Json.Serialization.JsonStringEnumConverter()));
 builder.Services.AddSingleton<ILogStreamManager, LogStreamManager>();
-builder.Services.AddHostedService<PodWatchService>();
+builder.Services.AddHostedService<ContainerWatchService>();
 builder.Services.AddHostedService<DownloadProgressService>();
 
 // --- Metrics (Phase 6) ---
-builder.Services.AddSingleton<IMetricsService, MetricsService>();
+builder.Services.AddSingleton<IMetricsService, DockerMetricsService>();
 builder.Services.AddHostedService<MetricsPushService>();
 
 // --- RCON (Phase 6) ---
@@ -103,24 +114,8 @@ builder.Services.AddHostedService<AutoScaleService>();
 
 var app = builder.Build();
 
-// --- Best-effort namespace bootstrap (Req 1.3, Req 13.1) ---
-// Never allowed to crash startup — the cluster may legitimately be unreachable
-// (Docker Desktop not running yet), in which case /api/health will report it.
-using (var scope = app.Services.CreateScope())
-{
-    var k8s = scope.ServiceProvider.GetRequiredService<IKubernetesService>();
-    var startupLogger = scope.ServiceProvider.GetRequiredService<ILogger<Program>>();
-    try
-    {
-        await k8s.EnsureNamespaceAsync(CancellationToken.None);
-    }
-    catch (Exception ex)
-    {
-        startupLogger.LogWarning(ex,
-            "Could not ensure the game-servers namespace on startup. " +
-            "The backend will continue running; check /api/health.");
-    }
-}
+// (The k8s-era namespace bootstrap is gone: there is nothing to pre-create on
+// a Docker engine — volumes are created per deploy, idempotently.)
 
 // --- Global exception handling → ProblemDetails (Req 14) ---
 app.UseMiddleware<ExceptionHandlingMiddleware>();

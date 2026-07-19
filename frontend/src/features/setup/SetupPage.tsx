@@ -3,6 +3,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Skeleton } from "@/components/ui/skeleton";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { useSetupStatus } from "@/api/queries";
+import { RuntimeCard } from "./RuntimeCard";
 import { SecretsForm } from "./SecretsForm";
 
 interface CheckProps {
@@ -34,12 +35,14 @@ export function SetupPage() {
     <div className="mx-auto max-w-2xl space-y-6 p-6">
       <div>
         <h1 className="text-xl font-semibold">Setup</h1>
-        <p className="text-sm text-muted-foreground">Cluster readiness and secret configuration.</p>
+        <p className="text-sm text-muted-foreground">Runtime readiness and secret configuration.</p>
       </div>
+
+      <RuntimeCard />
 
       <Card>
         <CardHeader>
-          <CardTitle>Cluster readiness</CardTitle>
+          <CardTitle>Runtime readiness</CardTitle>
           <CardDescription>What the backend can see from this machine.</CardDescription>
         </CardHeader>
         <CardContent className="divide-y">
@@ -59,25 +62,15 @@ export function SetupPage() {
           {setup.isSuccess && (
             <>
               <Check
-                ok={setup.data.kubeconfigPresent}
-                label="Kubeconfig present"
-                description="A kubeconfig was found, so the backend knows how to reach a cluster."
+                ok={setup.data.dockerEngineReachable}
+                label="Container runtime running"
+                description="The Docker engine responds (the bundled runtime, or Docker Desktop if you use it)."
               />
               <Check
-                ok={setup.data.clusterReachable}
-                label="Cluster reachable"
-                description="The Kubernetes API responds (Docker Desktop must be running)."
-              />
-              <Check
-                ok={setup.data.namespaceReady}
-                label="Namespace ready"
-                description="The game-servers namespace exists."
-              />
-              <Check
-                ok={setup.data.metricsServerPresent}
+                ok={setup.data.metricsAvailable}
                 optional
-                label="metrics-server installed (optional)"
-                description="Without it, CPU/memory usage is unavailable — everything else still works."
+                label="Resource metrics available"
+                description="CPU/memory usage comes from the runtime itself, so this recovers with it."
               />
               <Check
                 ok={setup.data.secretsConfigured}

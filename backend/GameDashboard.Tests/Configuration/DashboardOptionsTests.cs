@@ -14,7 +14,8 @@ public class DashboardOptionsTests
             .AddInMemoryCollection(new Dictionary<string, string?>
             {
                 ["Dashboard:Namespace"] = "game-servers",
-                ["Dashboard:SecretName"] = "game-secrets",
+                ["Dashboard:DockerEndpoint"] = "tcp://127.0.0.1:2375",
+                ["Dashboard:DataDirectory"] = "C:\\custom\\data",
                 ["Dashboard:BindAddress"] = "127.0.0.1",
                 ["Dashboard:Port"] = "5000",
                 ["Dashboard:RequireAuthWhenExposed"] = "true",
@@ -34,7 +35,9 @@ public class DashboardOptionsTests
         var options = provider.GetRequiredService<IOptions<DashboardOptions>>().Value;
 
         Assert.Equal("game-servers", options.Namespace);
-        Assert.Equal("game-secrets", options.SecretName);
+        Assert.Equal("tcp://127.0.0.1:2375", options.DockerEndpoint);
+        Assert.Equal("C:\\custom\\data", options.DataDirectory);
+        Assert.Equal("C:\\custom\\data", options.ResolvedDataDirectory);
         Assert.Equal("127.0.0.1", options.BindAddress);
         Assert.Equal(5000, options.Port);
         Assert.True(options.RequireAuthWhenExposed);
@@ -54,6 +57,18 @@ public class DashboardOptionsTests
         Assert.Equal("127.0.0.1", options.BindAddress);
         Assert.Equal(5000, options.Port);
         Assert.True(options.AutoScale.Enabled);
+        // No endpoint override by default — the factory probes the platform
+        // default first, then the bundled runtime's loopback TCP endpoint.
+        Assert.Null(options.DockerEndpoint);
+    }
+
+    [Fact]
+    public void ResolvedDataDirectory_Defaults_To_A_Per_User_AppData_Folder()
+    {
+        var options = new DashboardOptions();
+
+        var expectedRoot = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
+        Assert.Equal(Path.Combine(expectedRoot, "GameDashboard"), options.ResolvedDataDirectory);
     }
 
     [Theory]

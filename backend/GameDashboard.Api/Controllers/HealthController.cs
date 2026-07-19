@@ -10,20 +10,20 @@ namespace GameDashboard.Api.Controllers;
 [Route("api/health")]
 public sealed class HealthController : ControllerBase
 {
-    private readonly IKubernetesService _kubernetesService;
+    private readonly IServerOrchestrator _orchestrator;
 
-    public HealthController(IKubernetesService kubernetesService)
+    public HealthController(IServerOrchestrator orchestrator)
     {
-        _kubernetesService = kubernetesService;
+        _orchestrator = orchestrator;
     }
 
     [HttpGet]
     public async Task<IActionResult> GetHealth(CancellationToken ct)
     {
-        var health = await _kubernetesService.GetHealthAsync(ct);
+        var health = await _orchestrator.GetHealthAsync(ct);
 
         // The endpoint itself always returns 200 — health is reported in the body,
-        // not via HTTP status, so the dashboard can render "cluster unreachable"
+        // not via HTTP status, so the dashboard can render "engine unreachable"
         // as a normal state rather than treating it as an API failure.
         return Ok(health);
     }

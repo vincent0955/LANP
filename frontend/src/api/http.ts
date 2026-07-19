@@ -47,8 +47,10 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     throw new ApiError(title, detail, response.status);
   }
 
-  if (response.status === 204) return undefined as T;
-  return (await response.json()) as T;
+  // Not every success carries a body (204 No Content, 202 Accepted from the
+  // runtime install endpoint) — only parse JSON when there is something to parse.
+  const text = await response.text();
+  return (text === "" ? undefined : JSON.parse(text)) as T;
 }
 
 export const http = {

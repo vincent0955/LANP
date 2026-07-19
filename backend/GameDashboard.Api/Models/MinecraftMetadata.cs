@@ -13,6 +13,7 @@ public record ModrinthProjectHit(
     string Description,
     string? IconUrl,
     long Downloads,
-    string ProjectType);
+    string ProjectType,
+    IReadOnlyList<string> Loaders);
 
 public record ModrinthSearchResponse(IReadOnlyList<ModrinthProjectHit> Hits);

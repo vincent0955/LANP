@@ -4,7 +4,10 @@
 
 export type ServerStatus = "Running" | "Stopped" | "Pending" | "Error" | "Unknown";
 
-/** A container port exposed via a NodePort Service (players connect to nodePort). */
+/**
+ * A container port published on the host (players connect to nodePort — the
+ * field name is a k8s-era leftover kept for wire compatibility).
+ */
 export interface PortMapping {
   name: string;
   protocol: string;
@@ -47,7 +50,7 @@ export interface DeployServerRequest {
   configOverrides?: Record<string, string> | null;
 }
 
-/** A port a game template needs, before a NodePort has been assigned. */
+/** A port a game template needs, before a host port has been assigned. */
 export interface TemplatePort {
   name: string;
   protocol: string;
@@ -87,12 +90,18 @@ export interface ModrinthProjectHit {
   iconUrl: string | null;
   downloads: number;
   projectType: string;
+  /** Mod-loader categories (forge, neoforge, fabric, quilt) the project supports. */
+  loaders: string[];
 }
 
 export interface ModrinthSearchResponse {
   hits: ModrinthProjectHit[];
 }
 
+/**
+ * Wire shape kept from the k8s era: clusterReachable now means "Docker engine
+ * reachable" and namespaceReady mirrors it (namespace is display-only).
+ */
 export interface ClusterHealth {
   clusterReachable: boolean;
   namespaceReady: boolean;
@@ -101,14 +110,42 @@ export interface ClusterHealth {
 }
 
 export interface SetupStatus {
-  kubeconfigPresent: boolean;
-  clusterReachable: boolean;
-  namespaceReady: boolean;
-  metricsServerPresent: boolean;
+  dockerEngineReachable: boolean;
+  /** Metrics come from docker stats, so this tracks engine reachability. */
+  metricsAvailable: boolean;
   secretsConfigured: boolean;
-  /** Key names present in the game-secrets Secret; values are never exposed. */
+  /** Key names present in the local secrets store; values are never exposed. */
   configuredSecretKeys: string[];
   warnings: string[];
+}
+
+/** Where the bundled-runtime install currently is (RuntimeSetupService). */
+export type RuntimePhase =
+  | "Idle"
+  | "InstallingWsl"
+  | "AwaitingReboot"
+  | "DownloadingDistro"
+  | "ImportingDistro"
+  | "StartingEngine"
+  | "Ready"
+  | "Failed";
+
+/**
+ * Bundled container runtime state (docs/docker-migration.md → Part 2). On
+ * Linux only platform + engineReachable are meaningful (native engine).
+ */
+export interface RuntimeStatus {
+  platform: "windows" | "linux";
+  wslInstalled: boolean;
+  distroImported: boolean;
+  engineReachable: boolean;
+  mirroredNetworkingConfigured: boolean;
+  phase: RuntimePhase;
+  /** 0–100 while phase is DownloadingDistro; null otherwise. */
+  downloadPercent: number | null;
+  error: string | null;
+  /** Admin commands the app won't run itself; rendered as copyable snippets. */
+  firewallCommands: string[];
 }
 
 export interface NodeMetrics {

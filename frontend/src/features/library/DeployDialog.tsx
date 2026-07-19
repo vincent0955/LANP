@@ -12,7 +12,7 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { useDeployServer } from "@/api/queries";
+import { useDeployServer, useServers } from "@/api/queries";
 import { isValidServerName, SERVER_NAME_RULES, suggestServerName } from "@/lib/serverName";
 import { toastApiError } from "@/lib/errors";
 import { formatBytes } from "@/lib/format";
@@ -53,7 +53,13 @@ function DeployForm({ game, onClose }: { game: GameTemplate; onClose: () => void
   const navigate = useNavigate();
   const deploy = useDeployServer();
 
-  const [name, setName] = useState(() => suggestServerName(game.displayName));
+  // The name stays a derived suggestion (unique against existing servers, so a
+  // second deploy of the same game gets e.g. "minecraft-java-2") until the user
+  // edits the field, at which point their text wins.
+  const servers = useServers();
+  const [editedName, setEditedName] = useState<string | null>(null);
+  const name =
+    editedName ?? suggestServerName(game.displayName, (servers.data ?? []).map((s) => s.name));
   const [config, setConfig] = useState<Record<string, string>>(() => ({ ...game.defaultConfig }));
   const [touched, setTouched] = useState(false);
 
@@ -118,7 +124,7 @@ function DeployForm({ game, onClose }: { game: GameTemplate; onClose: () => void
             <Input
               id="server-name"
               value={name}
-              onChange={(e) => setName(e.target.value)}
+              onChange={(e) => setEditedName(e.target.value)}
               onBlur={() => setTouched(true)}
               aria-invalid={touched && !nameValid}
             />
@@ -169,7 +175,7 @@ function DeployForm({ game, onClose }: { game: GameTemplate; onClose: () => void
               </div>
               {secretKeys.size > 0 && (
                 <p className="text-xs text-muted-foreground">
-                  {[...secretKeys].join(", ")} come from cluster secrets — configure them on the
+                  {[...secretKeys].join(", ")} come from the secrets store — configure them on the
                   Setup screen.
                 </p>
               )}

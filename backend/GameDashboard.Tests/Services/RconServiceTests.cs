@@ -1,11 +1,11 @@
 using System.Reflection;
-using GameDashboard.Api.Configuration;
 using GameDashboard.Api.Exceptions;
 using GameDashboard.Api.Models;
 using GameDashboard.Api.Services;
+using GameDashboard.Api.Services.Docker;
 using Microsoft.Extensions.Logging.Abstractions;
-using Microsoft.Extensions.Options;
 using Moq;
+using IDockerClient = Docker.DotNet.IDockerClient;
 
 namespace GameDashboard.Tests.Services;
 
@@ -16,23 +16,20 @@ namespace GameDashboard.Tests.Services;
 /// </summary>
 public class RconServiceTests
 {
-    private const string Namespace = "game-servers";
-
-    private static RconService CreateWithUnreachableCluster()
+    private static RconService CreateWithUnreachableEngine()
     {
-        var factory = new Mock<IKubernetesClientFactory>();
-        k8s.IKubernetes? nullClient = null;
-        string? err = "cluster unreachable";
-        factory.Setup(f => f.TryGetClient(out nullClient, out err)).Returns(false);
+        var factory = new Mock<IDockerClientFactory>();
+        factory.Setup(f => f.TryGetClientAsync(It.IsAny<CancellationToken>()))
+            .ReturnsAsync(((IDockerClient?)null, "engine unreachable"));
 
-        var options = Options.Create(new DashboardOptions { Namespace = Namespace });
-        return new RconService(factory.Object, options, NullLogger<RconService>.Instance);
+        return new RconService(
+            factory.Object, Mock.Of<ISecretsStore>(), NullLogger<RconService>.Instance);
     }
 
     [Fact]
-    public async Task QueryPlayerInfoAsync_Returns_Null_When_Cluster_Unreachable()
+    public async Task QueryPlayerInfoAsync_Returns_Null_When_Engine_Unreachable()
     {
-        var service = CreateWithUnreachableCluster();
+        var service = CreateWithUnreachableEngine();
 
         var result = await service.QueryPlayerInfoAsync("cs2-server", CancellationToken.None);
 
@@ -40,9 +37,9 @@ public class RconServiceTests
     }
 
     [Fact]
-    public async Task QueryPlayerInfoAsync_Never_Throws_When_Cluster_Unreachable()
+    public async Task QueryPlayerInfoAsync_Never_Throws_When_Engine_Unreachable()
     {
-        var service = CreateWithUnreachableCluster();
+        var service = CreateWithUnreachableEngine();
 
         var exception = await Record.ExceptionAsync(
             () => service.QueryPlayerInfoAsync("cs2-server", CancellationToken.None));
@@ -51,9 +48,9 @@ public class RconServiceTests
     }
 
     [Fact]
-    public async Task SendCommandAsync_Throws_RconUnavailable_When_Cluster_Unreachable()
+    public async Task SendCommandAsync_Throws_RconUnavailable_When_Engine_Unreachable()
     {
-        var service = CreateWithUnreachableCluster();
+        var service = CreateWithUnreachableEngine();
 
         await Assert.ThrowsAsync<RconUnavailableException>(
             () => service.SendCommandAsync("cs2-server", "status", CancellationToken.None));

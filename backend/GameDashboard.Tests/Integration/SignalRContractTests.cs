@@ -59,8 +59,9 @@ public class SignalRContractTests : IAsyncLifetime
             var deployResponse = await _fixture.Client.PostAsJsonAsync("/api/servers", deployRequest);
             deployResponse.EnsureSuccessStatusCode();
 
-            // A status change (Pending/Running as the pod comes up) should arrive
-            // within a reasonable window once the pod watch picks up the new pod.
+            // A status change (Pending/Running as the container comes up) should
+            // arrive within a reasonable window once the container watch poll
+            // picks up the new server.
             var completed = await Task.WhenAny(received.Task, Task.Delay(TimeSpan.FromSeconds(30)));
 
             if (completed == received.Task)
@@ -69,11 +70,11 @@ public class SignalRContractTests : IAsyncLifetime
                 AssertHasProperties(payload, "serverName", "status", "timestamp");
                 Assert.Equal(JsonValueKind.String, payload.GetProperty("status").ValueKind);
             }
-            // If no event arrived within the window (e.g. pod watch hasn't caught
-            // up yet on a slow CI runner), this is not treated as a contract
-            // failure — the contract under test is the *shape* of the message
-            // when one does arrive, verified above. Liveness of the watch itself
-            // is covered by the live Phase 5 verification.
+            // If no event arrived within the window (e.g. the watch poll hasn't
+            // caught up yet on a slow CI runner), this is not treated as a
+            // contract failure — the contract under test is the *shape* of the
+            // message when one does arrive, verified above. Liveness of the
+            // watch itself is covered by the live Phase 5 verification.
         }
         finally
         {

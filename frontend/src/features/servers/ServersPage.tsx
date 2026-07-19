@@ -18,7 +18,7 @@ export function ServersPage() {
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-xl font-semibold">Servers</h1>
-          <p className="text-sm text-muted-foreground">Deployed game servers in the cluster.</p>
+          <p className="text-sm text-muted-foreground">Deployed game servers on this machine.</p>
         </div>
         <Button asChild>
           <Link to="/library">

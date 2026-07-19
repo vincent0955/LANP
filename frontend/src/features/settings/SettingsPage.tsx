@@ -32,8 +32,8 @@ export function SettingsPage() {
       const health = await api.health();
       toast.success(
         health.clusterReachable
-          ? "Backend and cluster reachable."
-          : "Backend reachable — cluster is not (see Setup).",
+          ? "Backend and container runtime reachable."
+          : "Backend reachable — container runtime is not (see Setup).",
       );
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Connection failed.");

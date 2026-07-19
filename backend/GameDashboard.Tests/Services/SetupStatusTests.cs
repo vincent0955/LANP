@@ -1,10 +1,8 @@
+using Docker.DotNet;
 using GameDashboard.Api.Configuration;
-using GameDashboard.Api.Exceptions;
 using GameDashboard.Api.Models;
 using GameDashboard.Api.Services;
-using k8s;
-using k8s.Autorest;
-using k8s.Models;
+using GameDashboard.Api.Services.Docker;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using Moq;
@@ -12,288 +10,164 @@ using Moq;
 namespace GameDashboard.Tests.Services;
 
 /// <summary>
-/// Covers GetSetupStatusAsync's detection logic (Req 13.2) and SetSecretsAsync's
-/// contract (Req 13.3: write-only, never returns/logs values). Full happy-path
-/// verification against real cluster state is done live (see Task 9's live
-/// verification pass) since a real Secret and namespace round-trip is most
-/// meaningfully tested against an actual cluster.
+/// Covers GetSetupStatusAsync's detection logic (Req 13.2) and the secrets
+/// contract (Req 13.3: write-only listing, per-key reveal, template-key
+/// protection) against the local secrets store. Secrets no longer live on the
+/// cluster, so — unlike the k8s era — every secrets operation works with the
+/// engine down.
 /// </summary>
 public class SetupStatusTests
 {
-    private const string Namespace = "game-servers";
-    private const string SecretName = "game-secrets";
-
-    private static (KubernetesService Service, Mock<IKubernetes> Client, Mock<IMetricsService> Metrics)
-        CreateWithReachableCluster()
+    private static (DockerService Service, Mock<ISecretsStore> Secrets) Create(bool engineReachable)
     {
-        var client = new Mock<IKubernetes>();
-        var factory = new Mock<IKubernetesClientFactory>();
-        IKubernetes? outClient = client.Object;
-        string? outErr = null;
-        factory.Setup(f => f.TryGetClient(out outClient, out outErr)).Returns(true);
+        var factory = new Mock<IDockerClientFactory>();
+        if (engineReachable)
+        {
+            var client = new Mock<IDockerClient>();
+            client.SetupGet(c => c.System).Returns(Mock.Of<ISystemOperations>());
+            factory.Setup(f => f.TryGetClientAsync(It.IsAny<CancellationToken>()))
+                .ReturnsAsync((client.Object, null));
+        }
+        else
+        {
+            factory.Setup(f => f.TryGetClientAsync(It.IsAny<CancellationToken>()))
+                .ReturnsAsync(((IDockerClient?)null, "engine unreachable"));
+        }
+
+        var secrets = new Mock<ISecretsStore>();
+        secrets.Setup(s => s.GetKeysAsync(It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new List<string>());
 
         var metrics = new Mock<IMetricsService>();
         metrics.Setup(m => m.GetSnapshotAsync(It.IsAny<CancellationToken>()))
-            .ReturnsAsync(new MetricsSnapshot(true, new GameDashboard.Api.Models.NodeMetrics(0, 0, 0, 0), Array.Empty<PodMetricsInfo>(), null));
+            .ReturnsAsync(new MetricsSnapshot(false, null, Array.Empty<PodMetricsInfo>(), "unavailable"));
 
-        var options = Options.Create(new DashboardOptions { Namespace = Namespace, SecretName = SecretName });
-        var service = new KubernetesService(
-            factory.Object, new DeploymentBuilderService(), Mock.Of<IRconService>(), metrics.Object,
-            options, NullLogger<KubernetesService>.Instance);
+        var service = new DockerService(
+            factory.Object,
+            new ContainerSpecBuilder(),
+            new DeployTracker(),
+            secrets.Object,
+            Mock.Of<ILastActiveStore>(),
+            Mock.Of<ITcpReadinessProber>(),
+            Mock.Of<IRconService>(),
+            metrics.Object,
+            Mock.Of<IMinecraftMetadataService>(),
+            Options.Create(new DashboardOptions()),
+            NullLogger<DockerService>.Instance);
 
-        return (service, client, metrics);
+        return (service, secrets);
     }
 
     [Fact]
-    public async Task GetSetupStatusAsync_Reports_KubeconfigMissing_When_Client_Unavailable()
+    public async Task GetSetupStatusAsync_Reports_Engine_Unreachable_With_A_Warning()
     {
-        var factory = new Mock<IKubernetesClientFactory>();
-        IKubernetes? nullClient = null;
-        string? err = "kubeconfig not found";
-        factory.Setup(f => f.TryGetClient(out nullClient, out err)).Returns(false);
-
-        var metrics = new Mock<IMetricsService>();
-        var options = Options.Create(new DashboardOptions { Namespace = Namespace, SecretName = SecretName });
-        var service = new KubernetesService(
-            factory.Object, new DeploymentBuilderService(), Mock.Of<IRconService>(), metrics.Object,
-            options, NullLogger<KubernetesService>.Instance);
+        var (service, _) = Create(engineReachable: false);
 
         var status = await service.GetSetupStatusAsync(CancellationToken.None);
 
-        Assert.False(status.KubeconfigPresent);
-        Assert.False(status.ClusterReachable);
-        Assert.False(status.NamespaceReady);
-        Assert.False(status.MetricsServerPresent);
+        Assert.False(status.DockerEngineReachable);
+        // docker stats is built into the engine: metrics are available exactly
+        // when the engine is (the k8s metrics-server middle state is gone).
+        Assert.False(status.MetricsAvailable);
         Assert.False(status.SecretsConfigured);
         Assert.NotEmpty(status.Warnings);
     }
 
     [Fact]
-    public async Task GetSetupStatusAsync_Reports_NamespaceReady_And_SecretsConfigured_When_Both_Exist()
+    public async Task GetSetupStatusAsync_Never_Throws_When_Engine_Unreachable()
     {
-        var (service, client, _) = CreateWithReachableCluster();
-
-        client.Setup(c => c.CoreV1.ListNamespaceWithHttpMessagesAsync(
-                It.IsAny<bool?>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(),
-                It.IsAny<int?>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<bool?>(),
-                It.IsAny<int?>(), It.IsAny<bool?>(), It.IsAny<bool?>(),
-                It.IsAny<IReadOnlyDictionary<string, IReadOnlyList<string>>>(),
-                It.IsAny<CancellationToken>()))
-            .ReturnsAsync(new HttpOperationResponse<V1NamespaceList>
-            {
-                Body = new V1NamespaceList
-                {
-                    Items = new List<V1Namespace> { new() { Metadata = new V1ObjectMeta { Name = Namespace } } }
-                }
-            });
-
-        client.Setup(c => c.CoreV1.ReadNamespacedSecretWithHttpMessagesAsync(
-                SecretName, Namespace, It.IsAny<bool?>(),
-                It.IsAny<IReadOnlyDictionary<string, IReadOnlyList<string>>>(),
-                It.IsAny<CancellationToken>()))
-            .ReturnsAsync(new HttpOperationResponse<V1Secret>
-            {
-                Body = new V1Secret
-                {
-                    Metadata = new V1ObjectMeta { Name = SecretName },
-                    Data = new Dictionary<string, byte[]>
-                    {
-                        ["SRCDS_TOKEN"] = [1],
-                        ["MY_CUSTOM_KEY"] = [2]
-                    }
-                }
-            });
-
-        var status = await service.GetSetupStatusAsync(CancellationToken.None);
-
-        Assert.True(status.KubeconfigPresent);
-        Assert.True(status.ClusterReachable);
-        Assert.True(status.NamespaceReady);
-        Assert.True(status.MetricsServerPresent);
-        Assert.True(status.SecretsConfigured);
-        // Key names (and only key names) are surfaced, sorted, so the UI can
-        // list configured secrets — including custom ones (Req 13.3).
-        Assert.Equal(new[] { "MY_CUSTOM_KEY", "SRCDS_TOKEN" }, status.ConfiguredSecretKeys);
-        Assert.Empty(status.Warnings);
-    }
-
-    [Fact]
-    public async Task GetSetupStatusAsync_Warns_But_Does_Not_Fail_When_Secret_Missing()
-    {
-        var (service, client, _) = CreateWithReachableCluster();
-
-        client.Setup(c => c.CoreV1.ListNamespaceWithHttpMessagesAsync(
-                It.IsAny<bool?>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(),
-                It.IsAny<int?>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<bool?>(),
-                It.IsAny<int?>(), It.IsAny<bool?>(), It.IsAny<bool?>(),
-                It.IsAny<IReadOnlyDictionary<string, IReadOnlyList<string>>>(),
-                It.IsAny<CancellationToken>()))
-            .ReturnsAsync(new HttpOperationResponse<V1NamespaceList>
-            {
-                Body = new V1NamespaceList
-                {
-                    Items = new List<V1Namespace> { new() { Metadata = new V1ObjectMeta { Name = Namespace } } }
-                }
-            });
-
-        client.Setup(c => c.CoreV1.ReadNamespacedSecretWithHttpMessagesAsync(
-                SecretName, Namespace, It.IsAny<bool?>(),
-                It.IsAny<IReadOnlyDictionary<string, IReadOnlyList<string>>>(),
-                It.IsAny<CancellationToken>()))
-            .ThrowsAsync(new HttpOperationException
-            {
-                Response = new HttpResponseMessageWrapper(
-                    new HttpResponseMessage(System.Net.HttpStatusCode.NotFound), string.Empty)
-            });
-
-        var status = await service.GetSetupStatusAsync(CancellationToken.None);
-
-        Assert.True(status.ClusterReachable);
-        Assert.True(status.NamespaceReady);
-        Assert.False(status.SecretsConfigured);
-        Assert.Empty(status.ConfiguredSecretKeys);
-        Assert.Contains(status.Warnings, w => w.Contains("secrets", StringComparison.OrdinalIgnoreCase));
-    }
-
-    [Fact]
-    public async Task GetSetupStatusAsync_Warns_When_MetricsServer_Absent()
-    {
-        var client = new Mock<IKubernetes>();
-        var factory = new Mock<IKubernetesClientFactory>();
-        IKubernetes? outClient = client.Object;
-        string? outErr = null;
-        factory.Setup(f => f.TryGetClient(out outClient, out outErr)).Returns(true);
-
-        var metrics = new Mock<IMetricsService>();
-        metrics.Setup(m => m.GetSnapshotAsync(It.IsAny<CancellationToken>()))
-            .ReturnsAsync(new MetricsSnapshot(false, null, Array.Empty<PodMetricsInfo>(), "metrics-server is not installed"));
-
-        client.Setup(c => c.CoreV1.ListNamespaceWithHttpMessagesAsync(
-                It.IsAny<bool?>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(),
-                It.IsAny<int?>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<bool?>(),
-                It.IsAny<int?>(), It.IsAny<bool?>(), It.IsAny<bool?>(),
-                It.IsAny<IReadOnlyDictionary<string, IReadOnlyList<string>>>(),
-                It.IsAny<CancellationToken>()))
-            .ReturnsAsync(new HttpOperationResponse<V1NamespaceList>
-            {
-                Body = new V1NamespaceList
-                {
-                    Items = new List<V1Namespace> { new() { Metadata = new V1ObjectMeta { Name = Namespace } } }
-                }
-            });
-
-        client.Setup(c => c.CoreV1.ReadNamespacedSecretWithHttpMessagesAsync(
-                SecretName, Namespace, It.IsAny<bool?>(),
-                It.IsAny<IReadOnlyDictionary<string, IReadOnlyList<string>>>(),
-                It.IsAny<CancellationToken>()))
-            .ReturnsAsync(new HttpOperationResponse<V1Secret>
-            {
-                Body = new V1Secret { Metadata = new V1ObjectMeta { Name = SecretName } }
-            });
-
-        var options = Options.Create(new DashboardOptions { Namespace = Namespace, SecretName = SecretName });
-        var service = new KubernetesService(
-            factory.Object, new DeploymentBuilderService(), Mock.Of<IRconService>(), metrics.Object,
-            options, NullLogger<KubernetesService>.Instance);
-
-        var status = await service.GetSetupStatusAsync(CancellationToken.None);
-
-        Assert.False(status.MetricsServerPresent);
-        Assert.Contains(status.Warnings, w => w.Contains("metrics-server", StringComparison.OrdinalIgnoreCase));
-        // Missing metrics-server is a warning, not a failure of the overall check.
-        Assert.True(status.ClusterReachable);
-    }
-
-    [Fact]
-    public async Task GetSetupStatusAsync_Never_Throws_When_Cluster_Unreachable()
-    {
-        var factory = new Mock<IKubernetesClientFactory>();
-        IKubernetes? nullClient = null;
-        string? err = "unreachable";
-        factory.Setup(f => f.TryGetClient(out nullClient, out err)).Returns(false);
-
-        var options = Options.Create(new DashboardOptions { Namespace = Namespace, SecretName = SecretName });
-        var service = new KubernetesService(
-            factory.Object, new DeploymentBuilderService(), Mock.Of<IRconService>(), Mock.Of<IMetricsService>(),
-            options, NullLogger<KubernetesService>.Instance);
+        var (service, _) = Create(engineReachable: false);
 
         var exception = await Record.ExceptionAsync(() => service.GetSetupStatusAsync(CancellationToken.None));
 
         Assert.Null(exception);
     }
 
-    private static void SetupSecretRead(Mock<IKubernetes> client, Dictionary<string, byte[]> data)
+    [Fact]
+    public async Task GetSetupStatusAsync_Reports_All_Green_When_Engine_Up_And_Secrets_Configured()
     {
-        client.Setup(c => c.CoreV1.ReadNamespacedSecretWithHttpMessagesAsync(
-                SecretName, Namespace, It.IsAny<bool?>(),
-                It.IsAny<IReadOnlyDictionary<string, IReadOnlyList<string>>>(),
-                It.IsAny<CancellationToken>()))
-            .ReturnsAsync(new HttpOperationResponse<V1Secret>
-            {
-                Body = new V1Secret
-                {
-                    Metadata = new V1ObjectMeta { Name = SecretName },
-                    Data = data
-                }
-            });
+        var (service, secrets) = Create(engineReachable: true);
+        secrets.Setup(s => s.GetKeysAsync(It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new List<string> { "MY_CUSTOM_KEY", "SRCDS_TOKEN" });
+
+        var status = await service.GetSetupStatusAsync(CancellationToken.None);
+
+        Assert.True(status.DockerEngineReachable);
+        Assert.True(status.MetricsAvailable);
+        Assert.True(status.SecretsConfigured);
+        // Key names (and only key names) are surfaced, sorted by the store, so
+        // the UI can list configured secrets — including custom ones (Req 13.3).
+        Assert.Equal(new[] { "MY_CUSTOM_KEY", "SRCDS_TOKEN" }, status.ConfiguredSecretKeys);
+        Assert.Empty(status.Warnings);
     }
 
     [Fact]
-    public async Task GetSecretValueAsync_Returns_Decoded_Value()
+    public async Task GetSetupStatusAsync_Warns_But_Does_Not_Fail_When_No_Secrets_Configured()
     {
-        var (service, client, _) = CreateWithReachableCluster();
-        SetupSecretRead(client, new Dictionary<string, byte[]>
-        {
-            ["MY_KEY"] = System.Text.Encoding.UTF8.GetBytes("hunter2")
-        });
+        var (service, _) = Create(engineReachable: true);
 
-        var value = await service.GetSecretValueAsync("MY_KEY", CancellationToken.None);
+        var status = await service.GetSetupStatusAsync(CancellationToken.None);
 
-        Assert.Equal("hunter2", value);
+        Assert.True(status.DockerEngineReachable);
+        Assert.False(status.SecretsConfigured);
+        Assert.Empty(status.ConfiguredSecretKeys);
+        Assert.Contains(status.Warnings, w => w.Contains("secrets", StringComparison.OrdinalIgnoreCase));
+    }
+
+    // --- secrets contract (local store; engine state is irrelevant) ---
+
+    [Fact]
+    public async Task GetSecretValueAsync_Returns_The_Stored_Value()
+    {
+        var (service, secrets) = Create(engineReachable: false);
+        secrets.Setup(s => s.GetValueAsync("MY_KEY", It.IsAny<CancellationToken>()))
+            .ReturnsAsync("hunter2");
+
+        Assert.Equal("hunter2", await service.GetSecretValueAsync("MY_KEY", CancellationToken.None));
     }
 
     [Fact]
     public async Task GetSecretValueAsync_Throws_KeyNotFound_When_Key_Missing()
     {
-        var (service, client, _) = CreateWithReachableCluster();
-        SetupSecretRead(client, new Dictionary<string, byte[]>());
+        var (service, secrets) = Create(engineReachable: false);
+        secrets.Setup(s => s.GetValueAsync("NOPE", It.IsAny<CancellationToken>()))
+            .ReturnsAsync((string?)null);
 
         await Assert.ThrowsAsync<KeyNotFoundException>(
             () => service.GetSecretValueAsync("NOPE", CancellationToken.None));
     }
 
     [Fact]
-    public async Task DeleteSecretKeyAsync_Removes_Key_And_Replaces_Secret()
+    public async Task SetSecretsAsync_Works_With_The_Engine_Down()
     {
-        var (service, client, _) = CreateWithReachableCluster();
-        SetupSecretRead(client, new Dictionary<string, byte[]>
-        {
-            ["CUSTOM_KEY"] = [1],
-            ["OTHER_KEY"] = [2]
-        });
+        // Secrets are a local file now — setup must be possible before the
+        // runtime is even installed (the whole point of the Setup screen).
+        var (service, secrets) = Create(engineReachable: false);
+        var values = new Dictionary<string, string> { ["FOO"] = "bar" };
 
-        V1Secret? replaced = null;
-        client.Setup(c => c.CoreV1.ReplaceNamespacedSecretWithHttpMessagesAsync(
-                It.IsAny<V1Secret>(), SecretName, Namespace,
-                It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<bool?>(),
-                It.IsAny<IReadOnlyDictionary<string, IReadOnlyList<string>>>(),
-                It.IsAny<CancellationToken>()))
-            .Callback((V1Secret body, string _, string _, string _, string _, string _, bool? _,
-                IReadOnlyDictionary<string, IReadOnlyList<string>> _, CancellationToken _) => replaced = body)
-            .ReturnsAsync(new HttpOperationResponse<V1Secret> { Body = new V1Secret() });
+        await service.SetSecretsAsync(values, CancellationToken.None);
+
+        secrets.Verify(s => s.SetAsync(values, It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    [Fact]
+    public async Task DeleteSecretKeyAsync_Removes_A_Custom_Key()
+    {
+        var (service, secrets) = Create(engineReachable: false);
+        secrets.Setup(s => s.DeleteAsync("CUSTOM_KEY", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(true);
 
         await service.DeleteSecretKeyAsync("CUSTOM_KEY", CancellationToken.None);
 
-        Assert.NotNull(replaced);
-        Assert.False(replaced!.Data.ContainsKey("CUSTOM_KEY"));
-        Assert.True(replaced.Data.ContainsKey("OTHER_KEY"));
+        secrets.Verify(s => s.DeleteAsync("CUSTOM_KEY", It.IsAny<CancellationToken>()), Times.Once);
     }
 
     [Fact]
     public async Task DeleteSecretKeyAsync_Throws_KeyNotFound_When_Key_Missing()
     {
-        var (service, client, _) = CreateWithReachableCluster();
-        SetupSecretRead(client, new Dictionary<string, byte[]>());
+        var (service, secrets) = Create(engineReachable: false);
+        secrets.Setup(s => s.DeleteAsync("NOPE", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(false);
 
         await Assert.ThrowsAsync<KeyNotFoundException>(
             () => service.DeleteSecretKeyAsync("NOPE", CancellationToken.None));
@@ -302,28 +176,13 @@ public class SetupStatusTests
     [Fact]
     public async Task DeleteSecretKeyAsync_Rejects_Template_Referenced_Keys()
     {
-        var (service, _, _) = CreateWithReachableCluster();
+        var (service, secrets) = Create(engineReachable: false);
 
-        // SRCDS_TOKEN is wired into the CS2 template's secretKeyRefs; deleting it
-        // must be refused (409) even though it exists in the Secret.
+        // SRCDS_TOKEN is wired into the CS2 template's secretKeyRefs; deleting
+        // it must be refused (409) even though it exists in the store.
         await Assert.ThrowsAsync<InvalidOperationException>(
             () => service.DeleteSecretKeyAsync("SRCDS_TOKEN", CancellationToken.None));
-    }
 
-    [Fact]
-    public async Task SetSecretsAsync_Throws_ClusterUnreachable_When_Cluster_Down()
-    {
-        var factory = new Mock<IKubernetesClientFactory>();
-        IKubernetes? nullClient = null;
-        string? err = "unreachable";
-        factory.Setup(f => f.TryGetClient(out nullClient, out err)).Returns(false);
-
-        var options = Options.Create(new DashboardOptions { Namespace = Namespace, SecretName = SecretName });
-        var service = new KubernetesService(
-            factory.Object, new DeploymentBuilderService(), Mock.Of<IRconService>(), Mock.Of<IMetricsService>(),
-            options, NullLogger<KubernetesService>.Instance);
-
-        await Assert.ThrowsAsync<ClusterUnreachableException>(
-            () => service.SetSecretsAsync(new Dictionary<string, string> { ["FOO"] = "bar" }, CancellationToken.None));
+        secrets.Verify(s => s.DeleteAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()), Times.Never);
     }
 }

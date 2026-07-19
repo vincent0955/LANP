@@ -3,6 +3,7 @@ import {
   composeMinecraftOverrides,
   contentKindFor,
   defaultMemoryFor,
+  loaderLabel,
   parseModrinthSlug,
   resourcesForMemory,
   type MinecraftSelection,
@@ -117,6 +118,18 @@ describe("memory tiers", () => {
     expect(defaultMemoryFor("PAPER")).toBe("2G");
     expect(defaultMemoryFor("FORGE")).toBe("4G");
     expect(defaultMemoryFor("MODPACK")).toBe("6G");
+  });
+});
+
+describe("loaderLabel", () => {
+  it.each([
+    ["forge", "Forge"],
+    ["neoforge", "NeoForge"],
+    ["fabric", "Fabric"],
+    ["quilt", "Quilt"],
+    ["liteloader", "Liteloader"], // unknown loaders degrade to capitalization
+  ])("labels %s as %s", (input, expected) => {
+    expect(loaderLabel(input)).toBe(expected);
   });
 });
 

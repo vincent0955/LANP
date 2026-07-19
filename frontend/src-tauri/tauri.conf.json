@@ -30,7 +30,8 @@
     "targets": "all",
     "externalBin": ["binaries/gamedashboard-api"],
     "resources": {
-      "binaries/appsettings.json": "appsettings.json"
+      "binaries/appsettings.json": "appsettings.json",
+      "binaries/gamedashboard-wsl-rootfs.tar.gz": "gamedashboard-wsl-rootfs.tar.gz"
     },
     "icon": [
       "icons/32x32.png",

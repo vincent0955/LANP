@@ -67,7 +67,7 @@ public sealed class ExceptionHandlingMiddleware
     private static (int Status, string Title) MapException(Exception ex) => ex switch
     {
         GameDashboard.Api.Exceptions.ClusterUnreachableException =>
-            (StatusCodes.Status503ServiceUnavailable, "Kubernetes cluster is unreachable."),
+            (StatusCodes.Status503ServiceUnavailable, "Docker engine is unreachable."),
         GameDashboard.Api.Exceptions.RconUnavailableException =>
             (StatusCodes.Status503ServiceUnavailable, "RCON is unavailable for this server."),
         GameDashboard.Api.Exceptions.ServerAlreadyExistsException =>

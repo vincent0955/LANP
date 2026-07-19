@@ -110,6 +110,7 @@ public class CuratedGameTemplatesTests
         Assert.Contains(MinecraftJavaImage.Java8, aliases!);
         Assert.Contains(MinecraftJavaImage.Java17, aliases!);
         Assert.Contains(MinecraftJavaImage.Java21, aliases!);
+        Assert.Contains(MinecraftJavaImage.Java25, aliases!);
     }
 
     [Fact]

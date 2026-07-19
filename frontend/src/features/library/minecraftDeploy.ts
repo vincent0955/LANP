@@ -60,6 +60,25 @@ export function loaderFacetFor(software: ServerSoftware): string | undefined {
   return MOD_LOADERS.includes(software) ? software.toLowerCase() : undefined;
 }
 
+/**
+ * Loader filter for the modpack browser — packs bundle their own loader, so
+ * this only narrows the search (e.g. Forge packs only); "any" sends no facet.
+ */
+export const MODPACK_LOADER_OPTIONS = [
+  { value: "any", label: "Any loader" },
+  { value: "forge", label: "Forge" },
+  { value: "neoforge", label: "NeoForge" },
+  { value: "fabric", label: "Fabric" },
+  { value: "quilt", label: "Quilt" },
+] as const;
+export type ModpackLoader = (typeof MODPACK_LOADER_OPTIONS)[number]["value"];
+
+/** Display name for a Modrinth loader category (e.g. "neoforge" → "NeoForge"). */
+export function loaderLabel(loader: string): string {
+  const known = MODPACK_LOADER_OPTIONS.find((o) => o.value === loader);
+  return known ? known.label : loader.charAt(0).toUpperCase() + loader.slice(1);
+}
+
 export const MEMORY_OPTIONS = ["2G", "4G", "6G", "8G"] as const;
 export type MemoryOption = (typeof MEMORY_OPTIONS)[number];
 

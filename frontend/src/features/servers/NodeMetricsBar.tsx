@@ -3,7 +3,7 @@ import { useMetrics } from "@/api/queries";
 import { formatBytes, formatMillicores } from "@/lib/format";
 
 /**
- * Compact cluster-node CPU/memory gauges. Metrics arrive via MetricsUpdate
+ * Compact host CPU/memory gauges. Metrics arrive via MetricsUpdate
  * pushes overwriting the same query cache entry this reads (Req 8). When
  * metrics-server is absent the backend reports available=false — render an
  * unobtrusive note, never an error (Req 8.2).

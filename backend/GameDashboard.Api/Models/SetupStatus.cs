@@ -1,18 +1,15 @@
 namespace GameDashboard.Api.Models;
 
 /// <summary>
-/// First-run setup/readiness snapshot. See requirements.md → Req 13.2.
-///
-/// Distinguishes required conditions (kubeconfig, cluster, namespace) from optional
-/// ones (metrics-server, secrets) — missing optional components are reported as
-/// warnings, not failures (Req 13.4), so the dashboard can still function with
-/// reduced capability rather than refusing to start.
+/// First-run setup/readiness snapshot (docs/docker-migration.md → What changes
+/// for the API consumer). The k8s-era kubeconfig/namespace/metrics-server
+/// checks collapsed into one required condition — the Docker engine being
+/// reachable — plus optional secrets, which are reported as warnings rather
+/// than failures so the dashboard can still function with reduced capability.
 /// </summary>
 public record SetupStatus(
-    bool KubeconfigPresent,
-    bool ClusterReachable,
-    bool NamespaceReady,
-    bool MetricsServerPresent,
+    bool DockerEngineReachable,
+    bool MetricsAvailable,
     bool SecretsConfigured,
     IReadOnlyList<string> ConfiguredSecretKeys,
     IReadOnlyList<string> Warnings);

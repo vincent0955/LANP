@@ -18,6 +18,15 @@ public interface IMinecraftMetadataService
     /// <param name="kind">mod | plugin | modpack</param>
     Task<ModrinthSearchResponse> SearchContentAsync(
         string? query, string kind, string? loader, string? mcVersion, CancellationToken ct);
+
+    /// <summary>
+    /// The Minecraft version targeted by the newest release of a Modrinth
+    /// modpack — what itzg installs by default — used to pick the itzg image
+    /// whose JVM can run it. Null when it can't be determined (Modrinth
+    /// unreachable, unknown slug, URL/file instead of a slug): deploys must
+    /// never be blocked on metadata, callers fall back to a default image.
+    /// </summary>
+    Task<string?> TryGetModpackMinecraftVersionAsync(string slug, CancellationToken ct);
 }
 
 /// <summary>Upstream metadata source unreachable or returned garbage; maps to 503.</summary>

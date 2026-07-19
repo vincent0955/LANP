@@ -74,14 +74,14 @@ public sealed class AutoScaleService : BackgroundService
 
     private async Task EvaluateOnceAsync(CancellationToken ct)
     {
-        // Scoped services (IKubernetesService is scoped) need a scope per iteration
+        // Scoped services (IServerOrchestrator is scoped) need a scope per iteration
         // since this background service itself is a singleton.
         using var scope = _scopeFactory.CreateScope();
-        var kubernetesService = scope.ServiceProvider.GetRequiredService<IKubernetesService>();
+        var orchestrator = scope.ServiceProvider.GetRequiredService<IServerOrchestrator>();
         var metricsService = scope.ServiceProvider.GetRequiredService<IMetricsService>();
         var rconService = scope.ServiceProvider.GetRequiredService<IRconService>();
 
-        var servers = await kubernetesService.ListServersAsync(ct);
+        var servers = await orchestrator.ListServersAsync(ct);
         var runningServers = servers.Where(s => s.Status == ServerStatus.Running).ToList();
 
         if (runningServers.Count == 0)
@@ -100,10 +100,10 @@ public sealed class AutoScaleService : BackgroundService
 
             if (hasPlayers)
             {
-                await kubernetesService.SetLastActiveAsync(server.Name, DateTimeOffset.UtcNow, ct);
+                await orchestrator.SetLastActiveAsync(server.Name, DateTimeOffset.UtcNow, ct);
             }
 
-            var lastActive = await kubernetesService.GetLastActiveAsync(server.Name, ct);
+            var lastActive = await orchestrator.GetLastActiveAsync(server.Name, ct);
             candidates.Add(new ServerScaleCandidate(server.Name, hasPlayers, lastActive));
         }
 
@@ -122,7 +122,7 @@ public sealed class AutoScaleService : BackgroundService
         {
             try
             {
-                await kubernetesService.ScaleServerAsync(serverName, 0, ct);
+                await orchestrator.ScaleServerAsync(serverName, 0, ct);
                 _logger.LogInformation(
                     "Auto-scaled down server {Server}: {Reason}", serverName, decision.Reason);
 

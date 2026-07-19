@@ -8,11 +8,35 @@ public sealed class DashboardOptions
 {
     public const string SectionName = "Dashboard";
 
-    /// <summary>Kubernetes namespace all game servers live in.</summary>
+    /// <summary>
+    /// Logical grouping name for the dashboard's servers. A leftover from the
+    /// Kubernetes namespace, kept because the /api/health wire shape still
+    /// reports it; under Docker it is display-only.
+    /// </summary>
     public string Namespace { get; set; } = "game-servers";
 
-    /// <summary>Name of the Kubernetes Secret holding tokens/RCON passwords.</summary>
-    public string SecretName { get; set; } = "game-secrets";
+    /// <summary>
+    /// Docker Engine endpoint override (e.g. "npipe://./pipe/docker_engine",
+    /// "unix:///var/run/docker.sock", "tcp://127.0.0.1:2375"). When null, the
+    /// platform default is probed first, then the bundled runtime's loopback
+    /// TCP endpoint. See DockerClientFactory.
+    /// </summary>
+    public string? DockerEndpoint { get; set; }
+
+    /// <summary>
+    /// Directory for the dashboard's local state (secrets store, last-active
+    /// file). Defaults to %APPDATA%/GameDashboard (Windows) or
+    /// ~/.config/GameDashboard (Linux).
+    /// </summary>
+    public string? DataDirectory { get; set; }
+
+    /// <summary><see cref="DataDirectory"/> with the platform default applied.</summary>
+    public string ResolvedDataDirectory =>
+        string.IsNullOrWhiteSpace(DataDirectory)
+            ? Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
+                "GameDashboard")
+            : DataDirectory;
 
     /// <summary>Address the backend binds to. Loopback by default (localhost-first).</summary>
     public string BindAddress { get; set; } = "127.0.0.1";
@@ -56,6 +80,31 @@ public sealed class DashboardOptions
 
     public AutoScaleOptions AutoScale { get; set; } = new();
     public MetricsOptions Metrics { get; set; } = new();
+    public RuntimeOptions Runtime { get; set; } = new();
+}
+
+/// <summary>
+/// Bundled container runtime settings (docs/docker-migration.md → Part 2).
+/// Only meaningful on Windows, where the runtime is a WSL2 distro.
+/// </summary>
+public sealed class RuntimeOptions
+{
+    /// <summary>WSL distro name the bundled runtime is imported under.</summary>
+    public string DistroName { get; set; } = "gamedashboard";
+
+    /// <summary>
+    /// Where the distro rootfs tarball is downloaded from on first run
+    /// (built by scripts/runtime/build-wsl-distro.sh, published as a release
+    /// asset — keeps the installer slim).
+    /// </summary>
+    public string DistroDownloadUrl { get; set; } =
+        "https://github.com/vincent0955/source-server-cluster/releases/latest/download/gamedashboard-wsl-rootfs.tar.gz";
+
+    /// <summary>
+    /// Directory holding the imported distro's VHDX and the downloaded
+    /// tarball. Defaults to %LOCALAPPDATA%\GameDashboard\wsl.
+    /// </summary>
+    public string? InstallDirectory { get; set; }
 }
 
 public sealed class AutoScaleOptions

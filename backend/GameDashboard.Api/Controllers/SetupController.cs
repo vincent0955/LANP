@@ -10,24 +10,24 @@ namespace GameDashboard.Api.Controllers;
 [Route("api/setup")]
 public sealed class SetupController : ControllerBase
 {
-    private readonly IKubernetesService _kubernetesService;
+    private readonly IServerOrchestrator _orchestrator;
 
-    public SetupController(IKubernetesService kubernetesService)
+    public SetupController(IServerOrchestrator orchestrator)
     {
-        _kubernetesService = kubernetesService;
+        _orchestrator = orchestrator;
     }
 
     [HttpGet("status")]
     public async Task<IActionResult> GetStatus(CancellationToken ct)
     {
-        var status = await _kubernetesService.GetSetupStatusAsync(ct);
+        var status = await _orchestrator.GetSetupStatusAsync(ct);
         return Ok(status);
     }
 
     /// <summary>
-    /// Creates or updates the game-secrets Secret. There is deliberately no bulk
-    /// GET — values only leave the cluster one at a time via the explicit
-    /// per-key reveal endpoint below (relaxation of Req 13.3 / Req 14.3).
+    /// Creates or updates secrets in the local encrypted store. There is
+    /// deliberately no bulk GET — values only leave the store one at a time via
+    /// the explicit per-key reveal endpoint below (relaxation of Req 13.3 / Req 14.3).
     /// </summary>
     [HttpPost("secrets")]
     public async Task<IActionResult> SetSecrets([FromBody] IDictionary<string, string>? values, CancellationToken ct)
@@ -39,7 +39,7 @@ public sealed class SetupController : ControllerBase
                 statusCode: StatusCodes.Status400BadRequest);
         }
 
-        await _kubernetesService.SetSecretsAsync(values, ct);
+        await _orchestrator.SetSecretsAsync(values, ct);
         return NoContent();
     }
 
@@ -50,19 +50,19 @@ public sealed class SetupController : ControllerBase
     [HttpGet("secrets/{key}/value")]
     public async Task<IActionResult> GetSecretValue(string key, CancellationToken ct)
     {
-        var value = await _kubernetesService.GetSecretValueAsync(key, ct);
+        var value = await _orchestrator.GetSecretValueAsync(key, ct);
         return Ok(new { value });
     }
 
     /// <summary>
-    /// Removes a single key from the game-secrets Secret. Keys referenced by a
+    /// Removes a single key from the secrets store. Keys referenced by a
     /// curated game template are rejected with 409 (see
-    /// KubernetesService.DeleteSecretKeyAsync).
+    /// DockerService.DeleteSecretKeyAsync).
     /// </summary>
     [HttpDelete("secrets/{key}")]
     public async Task<IActionResult> DeleteSecretKey(string key, CancellationToken ct)
     {
-        await _kubernetesService.DeleteSecretKeyAsync(key, ct);
+        await _orchestrator.DeleteSecretKeyAsync(key, ct);
         return NoContent();
     }
 }

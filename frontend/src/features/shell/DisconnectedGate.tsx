@@ -9,9 +9,9 @@ import { Link } from "react-router-dom";
 
 /**
  * Full-screen takeover while the backend itself is unreachable (network-level
- * failure or auth rejection). Cluster problems are NOT gated here — /api/health
- * returns 200 even when the cluster is down, and the Setup screen is the place
- * that explains cluster state.
+ * failure or auth rejection). Runtime problems are NOT gated here — /api/health
+ * returns 200 even when the Docker engine is down, and the Setup screen is the
+ * place that explains runtime state.
  */
 export function DisconnectedGate({ children }: { children: ReactNode }) {
   const health = useHealth();

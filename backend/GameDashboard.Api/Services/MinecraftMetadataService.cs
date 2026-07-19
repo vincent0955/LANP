@@ -50,6 +50,69 @@ public sealed class MinecraftMetadataService : IMinecraftMetadataService
         return await GetCachedAsync($"mc-search:{url}", SearchCacheTtl, () => FetchSearchAsync(url, ct));
     }
 
+    public async Task<string?> TryGetModpackMinecraftVersionAsync(string slug, CancellationToken ct)
+    {
+        var normalized = slug.Trim().ToLowerInvariant();
+        // Only bare slugs are resolvable; itzg also accepts URLs and local
+        // files for MODRINTH_MODPACK, which we can't look up.
+        if (normalized.Length == 0 || normalized.Contains('/'))
+        {
+            return null;
+        }
+
+        try
+        {
+            return await GetCachedAsync($"mc-modpack-version:{normalized}", VersionsCacheTtl,
+                () => FetchModpackMinecraftVersionAsync(normalized, ct));
+        }
+        catch (MinecraftMetadataUnavailableException)
+        {
+            return null;
+        }
+    }
+
+    private async Task<string?> FetchModpackMinecraftVersionAsync(string slug, CancellationToken ct)
+    {
+        // 404 for an unknown slug surfaces as MinecraftMetadataUnavailable via
+        // EnsureSuccessStatusCode — the caller's null fallback covers it.
+        using var doc = await GetJsonAsync(
+            $"https://api.modrinth.com/v2/project/{Uri.EscapeDataString(slug)}/version", ct);
+
+        if (doc.RootElement.ValueKind != JsonValueKind.Array)
+        {
+            return null;
+        }
+
+        // Entries come newest-first. itzg installs the newest release by
+        // default, so prefer the first release entry; a pack with no releases
+        // at all (only betas) falls back to the newest entry of any type.
+        var entries = doc.RootElement.EnumerateArray().ToList();
+        var installed = entries.FirstOrDefault(e =>
+            e.TryGetProperty("version_type", out var t) && t.GetString() == "release");
+        if (installed.ValueKind == JsonValueKind.Undefined)
+        {
+            installed = entries.FirstOrDefault();
+        }
+
+        if (installed.ValueKind != JsonValueKind.Object ||
+            !installed.TryGetProperty("game_versions", out var gameVersions) ||
+            gameVersions.ValueKind != JsonValueKind.Array)
+        {
+            return null;
+        }
+
+        // A pack version usually pins exactly one MC version; if it lists
+        // several, the newest is the one the server actually runs.
+        return gameVersions.EnumerateArray()
+            .Select(v => v.GetString())
+            .Where(v => v is not null)
+            .Select(v => (Raw: v!, Parsed: Version.TryParse(v, out var p) ? p : null))
+            .Where(v => v.Parsed is not null)
+            .OrderByDescending(v => v.Parsed)
+            .Select(v => v.Raw)
+            .FirstOrDefault();
+    }
+
     private async Task<T> GetCachedAsync<T>(string key, TimeSpan ttl, Func<Task<T>> fetch)
     {
         if (_cache.TryGetValue(key, out T? cached) && cached is not null)
@@ -208,7 +271,12 @@ public sealed class MinecraftMetadataService : IMinecraftMetadataService
         {
             case "modpack":
                 facetGroups.Add("[\"project_type:modpack\"]");
-                // No loader/version facets: a pack pins its own loader and version.
+                // No version facet — a pack pins its own MC version — but the
+                // browser can narrow to one loader (e.g. Forge packs only).
+                if (!string.IsNullOrWhiteSpace(loader))
+                {
+                    facetGroups.Add($"[\"categories:{loader.ToLowerInvariant()}\"]");
+                }
                 break;
             case "plugin":
                 // Modrinth classifies plugins as mod-type projects with plugin-
@@ -244,6 +312,11 @@ public sealed class MinecraftMetadataService : IMinecraftMetadataService
                $"&index={index}&limit=20";
     }
 
+    // Mod-loader categories as Modrinth spells them; a hit's other categories
+    // (themes like "adventure", plugin loaders) aren't loaders the deploy
+    // dialog cares about.
+    private static readonly string[] ModLoaderCategories = ["forge", "neoforge", "fabric", "quilt"];
+
     private async Task<ModrinthSearchResponse> FetchSearchAsync(string url, CancellationToken ct)
     {
         using var doc = await GetJsonAsync(url, ct);
@@ -255,11 +328,26 @@ public sealed class MinecraftMetadataService : IMinecraftMetadataService
                 Description: h.GetProperty("description").GetString() ?? "",
                 IconUrl: h.TryGetProperty("icon_url", out var icon) ? icon.GetString() : null,
                 Downloads: h.TryGetProperty("downloads", out var dl) ? dl.GetInt64() : 0,
-                ProjectType: h.GetProperty("project_type").GetString() ?? "mod"))
+                ProjectType: h.GetProperty("project_type").GetString() ?? "mod",
+                Loaders: ExtractLoaders(h)))
             .Where(h => h.Slug.Length > 0)
             .ToList();
 
         return new ModrinthSearchResponse(hits);
+    }
+
+    private static IReadOnlyList<string> ExtractLoaders(JsonElement hit)
+    {
+        if (!hit.TryGetProperty("categories", out var categories) || categories.ValueKind != JsonValueKind.Array)
+        {
+            return [];
+        }
+
+        return categories.EnumerateArray()
+            .Select(c => c.GetString())
+            .Where(c => c is not null && ModLoaderCategories.Contains(c))
+            .Select(c => c!)
+            .ToList();
     }
 
     // --- HTTP plumbing ---

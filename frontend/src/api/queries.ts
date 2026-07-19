@@ -13,6 +13,7 @@ export const queryKeys = {
   games: (search: string) => ["games", search] as const,
   metrics: ["metrics"] as const,
   network: ["network"] as const,
+  runtime: ["runtime"] as const,
   minecraftVersions: (type: string) => ["minecraft", "versions", type] as const,
   minecraftSearch: (params: Record<string, string>) => ["minecraft", "search", params] as const,
 };
@@ -132,6 +133,43 @@ export function useUpdateConfig(name: string) {
   return useMutation({
     mutationFn: (values: Record<string, string>) => api.updateConfig(name, values),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: queryKeys.config(name) }),
+  });
+}
+
+/**
+ * Bundled runtime state. Polls while an install is in flight (the backend
+ * runs it in the background; progress only surfaces via this endpoint) and
+ * goes quiet once the phase settles.
+ */
+export function useRuntimeStatus() {
+  return useQuery({
+    queryKey: queryKeys.runtime,
+    queryFn: api.runtimeStatus,
+    refetchInterval: (query) => {
+      const phase = query.state.data?.phase;
+      const installing =
+        phase === "InstallingWsl" ||
+        phase === "DownloadingDistro" ||
+        phase === "ImportingDistro" ||
+        phase === "StartingEngine";
+      return installing ? 2_000 : false;
+    },
+  });
+}
+
+export function useInstallRuntime() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: () => api.runtimeInstall(),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: queryKeys.runtime }),
+  });
+}
+
+export function useEnableMirroredNetworking() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: () => api.runtimeEnableMirrored(),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: queryKeys.runtime }),
   });
 }
 

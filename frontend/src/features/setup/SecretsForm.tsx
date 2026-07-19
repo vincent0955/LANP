@@ -50,7 +50,7 @@ export function SecretsForm() {
   const [revealing, setRevealing] = useState<string | null>(null);
   const [pendingDelete, setPendingDelete] = useState<string | null>(null);
 
-  // Keys already stored in the cluster (names only; values are fetched one at a
+  // Keys already stored on this machine (names only; values are fetched one at a
   // time on explicit reveal). Custom keys not in KNOWN_SECRETS get their own
   // field so they remain visible and editable after saving.
   const configuredKeys = setup.data?.configuredSecretKeys ?? [];
@@ -185,7 +185,7 @@ export function SecretsForm() {
     }
     setSecrets.mutate(payload, {
       onSuccess: () => {
-        toast.success("Secrets saved to the cluster.");
+        toast.success("Secrets saved.");
         setValues({});
         setCustom([]);
         setVisible({});
@@ -200,7 +200,7 @@ export function SecretsForm() {
       <CardHeader>
         <CardTitle>Secrets</CardTitle>
         <CardDescription>
-          Stored in the cluster's game-secrets Secret. Fields showing dots already have a value —
+          Stored encrypted on this machine, never in plain text. Fields showing dots already have a value —
           click the eye to reveal and edit it in place. Leave a field untouched to keep its
           current value.
         </CardDescription>

@@ -5,7 +5,7 @@
 // The target-triple suffix is required by Tauri's sidecar convention; this app
 // only ships for Windows x64, so it is hardcoded.
 import { execSync } from "node:child_process";
-import { copyFileSync, mkdirSync } from "node:fs";
+import { copyFileSync, existsSync, mkdirSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -38,4 +38,22 @@ copyFileSync(
 // compiled-in defaults for every setting, so a missing file is fine.
 copyFileSync(join(publishDir, "appsettings.json"), join(binariesDir, "appsettings.json"));
 
+// The bundled container runtime (docs/docker-migration.md → Part 2): the WSL2
+// rootfs tarball ships inside the installer so first run needs no download.
+// Built by scripts/runtime/build-wsl-distro.sh (requires Linux or Docker),
+// which is why it can't be produced inline here and is required up front.
+const tarballName = "gamedashboard-wsl-rootfs.tar.gz";
+const tarballSource = join(frontendDir, "..", "scripts", "runtime", tarballName);
+if (!existsSync(tarballSource)) {
+  console.error(
+    `missing ${tarballSource}\n` +
+      "Build it first (from any machine with Docker):\n" +
+      '  docker run --rm -v "<repo>/scripts/runtime:/work" -w /work alpine:3.21 \\\n' +
+      '    sh -c "apk add --no-cache bash curl tar coreutils ca-certificates && bash ./build-wsl-distro.sh"',
+  );
+  process.exit(1);
+}
+copyFileSync(tarballSource, join(binariesDir, tarballName));
+
 console.log("sidecar staged: binaries/gamedashboard-api-x86_64-pc-windows-msvc.exe");
+console.log(`runtime tarball staged: binaries/${tarballName}`);

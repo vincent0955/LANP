@@ -46,7 +46,7 @@ export function DeleteServerDialog({ serverName, onClose, onDeleted }: Props) {
         <DialogHeader>
           <DialogTitle>Delete {serverName}?</DialogTitle>
           <DialogDescription>
-            The server will be removed from the cluster. Choose what happens to its saved data
+            The server will be removed from this machine. Choose what happens to its saved data
             (world files, configs, downloaded game files).
           </DialogDescription>
         </DialogHeader>

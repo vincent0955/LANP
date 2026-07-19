@@ -1,40 +1,37 @@
 using System.Collections.Concurrent;
-using GameDashboard.Api.Configuration;
+using Docker.DotNet;
+using Docker.DotNet.Models;
 using GameDashboard.Api.Hubs;
-using GameDashboard.Api.Services;
-using k8s;
-using k8s.Autorest;
+using GameDashboard.Api.Services.Docker;
 using Microsoft.AspNetCore.SignalR;
-using Microsoft.Extensions.Options;
 
 namespace GameDashboard.Api.RealTime;
 
 /// <summary>
-/// See <see cref="ILogStreamManager"/>. One background read loop per server with at
-/// least one subscriber; fans lines out to all SignalR connections in that server's
-/// log group. Torn down when the last subscriber unsubscribes or disconnects.
+/// See <see cref="ILogStreamManager"/>. One background read loop per server
+/// with at least one subscriber, consuming `docker logs --follow` (multiplexed
+/// stdout/stderr demuxed to lines); fans lines out to all SignalR connections
+/// in that server's log group. Torn down when the last subscriber unsubscribes
+/// or disconnects.
 /// </summary>
 public sealed class LogStreamManager : ILogStreamManager, IDisposable
 {
     private const int ReplayLineCount = 200;
 
-    private readonly IKubernetesClientFactory _clientFactory;
+    private readonly IDockerClientFactory _clientFactory;
     private readonly IHubContext<DashboardHub> _hubContext;
-    private readonly DashboardOptions _options;
     private readonly ILogger<LogStreamManager> _logger;
 
     private readonly object _lock = new();
     private readonly Dictionary<string, StreamState> _streamsByServer = new();
 
     public LogStreamManager(
-        IKubernetesClientFactory clientFactory,
+        IDockerClientFactory clientFactory,
         IHubContext<DashboardHub> hubContext,
-        IOptions<DashboardOptions> options,
         ILogger<LogStreamManager> logger)
     {
         _clientFactory = clientFactory;
         _hubContext = hubContext;
-        _options = options.Value;
         _logger = logger;
     }
 
@@ -65,7 +62,7 @@ public sealed class LogStreamManager : ILogStreamManager, IDisposable
             state.ReadLoopTask = Task.Run(() => RunReadLoopAsync(serverName, state, state.Cts.Token));
         }
 
-        // Replay recent history to the newly subscribed connection only (Req 7.3).
+        // Replay recent history to the newly subscribed connection only.
         var recentLines = state.RecentLines.ToArray();
         var client = _hubContext.Clients.Client(connectionId);
         foreach (var line in recentLines)
@@ -125,31 +122,33 @@ public sealed class LogStreamManager : ILogStreamManager, IDisposable
 
     private async Task RunReadLoopAsync(string serverName, StreamState state, CancellationToken ct)
     {
-        if (!_clientFactory.TryGetClient(out var client, out var error))
+        var (client, error) = await _clientFactory.TryGetClientAsync(ct);
+        if (client is null)
         {
             _logger.LogWarning(
-                "Cannot start log stream for {ServerName}: cluster unreachable ({Error}).", serverName, error);
+                "Cannot start log stream for {ServerName}: Docker engine unreachable ({Error}).", serverName, error);
             return;
         }
 
         try
         {
-            using var stream = await client!.CoreV1.ReadNamespacedPodLogAsync(
-                name: await ResolvePodNameAsync(client, serverName, ct),
-                namespaceParameter: _options.Namespace,
-                follow: true,
-                tailLines: ReplayLineCount,
-                cancellationToken: ct);
-
-            using var reader = new StreamReader(stream);
-            while (!ct.IsCancellationRequested)
-            {
-                var line = await reader.ReadLineAsync(ct);
-                if (line is null)
+            // The container is named exactly after the server; tty is always
+            // false for dashboard-created containers, so the stream is
+            // multiplexed stdout/stderr.
+            using var stream = await client.Containers.GetContainerLogsAsync(
+                serverName,
+                tty: false,
+                new ContainerLogsParameters
                 {
-                    break; // stream ended (pod stopped / log closed)
-                }
+                    ShowStdout = true,
+                    ShowStderr = true,
+                    Follow = true,
+                    Tail = ReplayLineCount.ToString(),
+                },
+                ct);
 
+            await foreach (var line in DockerStreamText.ReadLinesAsync(stream, ct))
+            {
                 state.RecentLines.Enqueue(line);
                 while (state.RecentLines.Count > ReplayLineCount)
                 {
@@ -165,28 +164,14 @@ public sealed class LogStreamManager : ILogStreamManager, IDisposable
         {
             // Expected on unsubscribe/shutdown.
         }
-        catch (HttpOperationException ex) when (ex.Response.StatusCode == System.Net.HttpStatusCode.NotFound)
+        catch (DockerContainerNotFoundException)
         {
-            _logger.LogInformation("Log stream for {ServerName} ended: pod not found.", serverName);
+            _logger.LogInformation("Log stream for {ServerName} ended: container not found.", serverName);
         }
         catch (Exception ex)
         {
             _logger.LogWarning(ex, "Log stream for {ServerName} terminated unexpectedly.", serverName);
         }
-    }
-
-    private async Task<string> ResolvePodNameAsync(IKubernetes client, string serverName, CancellationToken ct)
-    {
-        var deployment = await client.AppsV1.ReadNamespacedDeploymentAsync(serverName, _options.Namespace, cancellationToken: ct);
-        var appLabel = deployment.Spec?.Selector?.MatchLabels?.TryGetValue("app", out var lbl) == true ? lbl : serverName;
-
-        var pods = await client.CoreV1.ListNamespacedPodAsync(
-            _options.Namespace, labelSelector: $"app={appLabel}", cancellationToken: ct);
-
-        var pod = pods.Items.FirstOrDefault()
-            ?? throw new InvalidOperationException($"No pod found for server '{serverName}'.");
-
-        return pod.Metadata.Name;
     }
 
     public void Dispose()

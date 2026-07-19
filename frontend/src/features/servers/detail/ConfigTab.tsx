@@ -76,8 +76,8 @@ export function ConfigTab({ serverName }: { serverName: string }) {
       </div>
 
       <p className="text-xs text-muted-foreground">
-        Sensitive values (Steam tokens, RCON passwords) are not listed here — they live in cluster
-        secrets, managed on the <Link className="underline" to="/setup">Setup screen</Link>.
+        Sensitive values (Steam tokens, RCON passwords) are not listed here — they live in the
+        secrets store, managed on the <Link className="underline" to="/setup">Setup screen</Link>.
       </p>
     </div>
   );

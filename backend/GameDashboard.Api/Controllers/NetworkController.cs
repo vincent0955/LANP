@@ -49,7 +49,7 @@ public sealed class NetworkController : ControllerBase
         return Ok(new NetworkInfo(
             lanAddresses,
             publicAddress,
-            DeploymentBuilderService.NodePortRangeStart,
-            DeploymentBuilderService.NodePortRangeEnd));
+            Services.Docker.ContainerSpecBuilder.HostPortRangeStart,
+            Services.Docker.ContainerSpecBuilder.HostPortRangeEnd));
     }
 }

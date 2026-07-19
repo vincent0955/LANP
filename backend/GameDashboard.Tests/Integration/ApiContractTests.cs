@@ -14,9 +14,9 @@ namespace GameDashboard.Tests.Integration;
 /// even if it wouldn't otherwise fail deserialization (e.g. extra/missing
 /// properties are usually silently ignored by System.Text.Json).
 ///
-/// Run against the real cluster like the other integration tests (some endpoints
-/// need a reachable cluster to return 200), but the assertions here are about
-/// shape, not values — see design.md → API Surface, Data Models.
+/// Run against a real Docker engine like the other integration tests (some
+/// endpoints need a reachable engine to return 200), but the assertions here are
+/// about shape, not values — see design.md → API Surface, Data Models.
 /// </summary>
 [Trait("Category", "Integration")]
 [Collection(IntegrationTestCollection.Name)]
@@ -43,8 +43,8 @@ public class ApiContractTests
         var json = await GetJsonAsync("/api/setup/status");
 
         AssertHasProperties(json,
-            "kubeconfigPresent", "clusterReachable", "namespaceReady",
-            "metricsServerPresent", "secretsConfigured", "configuredSecretKeys", "warnings");
+            "dockerEngineReachable", "metricsAvailable",
+            "secretsConfigured", "configuredSecretKeys", "warnings");
 
         Assert.Equal(JsonValueKind.Array, json.GetProperty("configuredSecretKeys").ValueKind);
         Assert.Equal(JsonValueKind.Array, json.GetProperty("warnings").ValueKind);

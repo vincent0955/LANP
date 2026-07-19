@@ -7,13 +7,19 @@ using Xunit;
 namespace GameDashboard.Tests.Integration;
 
 /// <summary>
-/// End-to-end lifecycle test against a real, reachable Kubernetes cluster.
+/// End-to-end lifecycle test against a real, reachable Docker engine.
 /// Deploys a lightweight game (Terraria — small image, no license gate like
 /// Minecraft's EULA, fast to reach a stable state) and exercises the full
 /// deploy → status transitions → scale → config update → delete flow.
 ///
-/// Requires Docker Desktop (or any cluster the local kubeconfig resolves to) to be
-/// running and reachable. Not run by default; see IntegrationTestFixture.
+/// Deploys are asynchronous now (docs/docker-migration.md → Deploy is
+/// asynchronous): POST /api/servers returns immediately with a Pending detail
+/// while the image pull runs in the background, so the test waits for the
+/// server to reach Running before exercising the write operations that need
+/// the container to exist.
+///
+/// Requires a running Docker engine (Docker Desktop or the bundled runtime).
+/// Not run by default; see IntegrationTestFixture.
 /// </summary>
 [Trait("Category", "Integration")]
 [Collection(IntegrationTestCollection.Name)]
@@ -35,7 +41,7 @@ public class ServerLifecycleIntegrationTests
     {
         try
         {
-            // --- Deploy ---
+            // --- Deploy (async: accepted immediately, pull in background) ---
             var deployRequest = new DeployServerRequest(
                 _serverName, CuratedGameTemplates.Terraria.ImageTag, null, null);
 
@@ -47,17 +53,22 @@ public class ServerLifecycleIntegrationTests
             Assert.Equal(_serverName, created!.Name);
             Assert.NotEmpty(created.Ports);
 
-            // --- Status transition: should reach Running or Pending shortly after deploy ---
+            // --- Status transition: Pending (pulling/booting) or Running ---
             var initialStatus = await GetStatusAsync(_serverName);
             Assert.True(
                 initialStatus is ServerStatus.Pending or ServerStatus.Running,
                 $"Expected Pending or Running shortly after deploy, got {initialStatus}.");
 
-            // --- Duplicate deploy is rejected ---
+            // --- Duplicate deploy is rejected (whether tracker or container holds the name) ---
             var duplicateResponse = await _client.PostAsJsonAsync("/api/servers", deployRequest);
             Assert.Equal(HttpStatusCode.Conflict, duplicateResponse.StatusCode);
 
-            // --- Config: read, update, verify ---
+            // --- Wait for the background deploy to finish and the game to come up
+            // (first run pulls the image; the TCP readiness probe passes once the
+            // server actually listens) ---
+            await WaitForStatusAsync(_serverName, ServerStatus.Running, TimeSpan.FromMinutes(5));
+
+            // --- Config: read, update, verify (update recreates the container) ---
             var configResponse = await _client.GetAsync($"/api/servers/{_serverName}/config");
             Assert.Equal(HttpStatusCode.OK, configResponse.StatusCode);
             var config = await configResponse.Content.ReadFromJsonAsync<Dictionary<string, string>>(IntegrationTestFixture.JsonOptions);
@@ -77,7 +88,8 @@ public class ServerLifecycleIntegrationTests
                 $"/api/servers/{_serverName}/scale", new { replicas = 0 });
             Assert.Equal(HttpStatusCode.OK, scaleDownResponse.StatusCode);
 
-            await WaitForStatusAsync(_serverName, ServerStatus.Stopped, TimeSpan.FromSeconds(30));
+            // Graceful stop allows up to 30s for the world save before the kill.
+            await WaitForStatusAsync(_serverName, ServerStatus.Stopped, TimeSpan.FromSeconds(60));
 
             // --- Scale back up ---
             var scaleUpResponse = await _client.PostAsJsonAsync(
@@ -146,15 +158,21 @@ public class ServerLifecycleIntegrationTests
     private async Task WaitForStatusAsync(string name, ServerStatus expected, TimeSpan timeout)
     {
         var deadline = DateTime.UtcNow + timeout;
+        ServerStatus last = ServerStatus.Unknown;
         while (DateTime.UtcNow < deadline)
         {
-            if (await GetStatusAsync(name) == expected)
+            last = await GetStatusAsync(name);
+            if (last == expected)
             {
                 return;
+            }
+            if (last == ServerStatus.Error)
+            {
+                break; // a failed deploy never converges; fail fast with the status
             }
             await Task.Delay(TimeSpan.FromSeconds(2));
         }
 
-        Assert.Fail($"Server '{name}' did not reach status {expected} within {timeout.TotalSeconds}s.");
+        Assert.Fail($"Server '{name}' did not reach status {expected} within {timeout.TotalSeconds}s (last: {last}).");
     }
 }

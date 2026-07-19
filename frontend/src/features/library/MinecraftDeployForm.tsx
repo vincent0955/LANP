@@ -22,7 +22,12 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { useDeployServer, useMinecraftContentSearch, useMinecraftVersions } from "@/api/queries";
+import {
+  useDeployServer,
+  useMinecraftContentSearch,
+  useMinecraftVersions,
+  useServers,
+} from "@/api/queries";
 import { isValidServerName, SERVER_NAME_RULES, suggestServerName } from "@/lib/serverName";
 import { toastApiError } from "@/lib/errors";
 import type { GameTemplate, ModrinthProjectHit } from "@/api/types";
@@ -31,12 +36,15 @@ import {
   contentKindFor,
   defaultMemoryFor,
   loaderFacetFor,
+  loaderLabel,
   MEMORY_OPTIONS,
+  MODPACK_LOADER_OPTIONS,
   parseModrinthSlug,
   resourcesForMemory,
   SOFTWARE_GROUPS,
   versionsTypeFor,
   type MemoryOption,
+  type ModpackLoader,
   type ServerSoftware,
 } from "./minecraftDeploy";
 
@@ -62,7 +70,13 @@ export function MinecraftDeployForm({ game, onClose }: { game: GameTemplate; onC
   const navigate = useNavigate();
   const deploy = useDeployServer();
 
-  const [name, setName] = useState(() => suggestServerName(game.displayName));
+  // The name stays a derived suggestion (unique against existing servers, so a
+  // second deploy of the same game gets e.g. "minecraft-java-2") until the user
+  // edits the field, at which point their text wins.
+  const servers = useServers();
+  const [editedName, setEditedName] = useState<string | null>(null);
+  const name =
+    editedName ?? suggestServerName(game.displayName, (servers.data ?? []).map((s) => s.name));
   const [software, setSoftware] = useState<ServerSoftware>("VANILLA");
   const [version, setVersion] = useState("LATEST");
   const [memory, setMemory] = useState<MemoryOption>(defaultMemoryFor("VANILLA"));
@@ -70,6 +84,7 @@ export function MinecraftDeployForm({ game, onClose }: { game: GameTemplate; onC
   const [projects, setProjects] = useState<ModrinthProjectHit[]>([]);
   const [modpack, setModpack] = useState<ModrinthProjectHit | null>(null);
   const [modpackText, setModpackText] = useState("");
+  const [packLoader, setPackLoader] = useState<ModpackLoader>("any");
   const [query, setQuery] = useState("");
   const [advanced, setAdvanced] = useState<Record<string, string>>(() => ({
     ...game.defaultConfig,
@@ -89,7 +104,12 @@ export function MinecraftDeployForm({ game, onClose }: { game: GameTemplate; onC
   const search = useMinecraftContentSearch({
     q: debouncedQuery,
     kind: contentKind,
-    loader: loaderFacetFor(software),
+    loader:
+      contentKind === "modpack"
+        ? packLoader === "any"
+          ? undefined
+          : packLoader
+        : loaderFacetFor(software),
     mcVersion: contentKind === "modpack" ? undefined : resolvedVersion,
   });
 
@@ -111,6 +131,7 @@ export function MinecraftDeployForm({ game, onClose }: { game: GameTemplate; onC
       setProjects([]);
       setModpack(null);
       setModpackText("");
+      setPackLoader("any");
       setQuery("");
     }
     setSoftware(next);
@@ -166,11 +187,10 @@ export function MinecraftDeployForm({ game, onClose }: { game: GameTemplate; onC
   };
 
   const hits = search.data?.hits ?? [];
-  const contentNoun = contentKind === "plugin" ? "plugins" : contentKind === "mod" ? "mods" : "modpacks";
 
   return (
     <Dialog open onOpenChange={(open) => !open && onClose()}>
-      <DialogContent className="max-w-lg">
+      <DialogContent className="flex max-h-[calc(100dvh-4rem)] max-w-lg flex-col">
         <DialogHeader>
           <DialogTitle>Deploy {game.displayName}</DialogTitle>
           <DialogDescription>
@@ -179,13 +199,13 @@ export function MinecraftDeployForm({ game, onClose }: { game: GameTemplate; onC
           </DialogDescription>
         </DialogHeader>
 
-        <div className="space-y-4">
+        <div className="-mx-4 min-h-0 flex-1 space-y-4 overflow-y-auto px-4">
           <div className="space-y-2">
             <Label htmlFor="server-name">Server name</Label>
             <Input
               id="server-name"
               value={name}
-              onChange={(e) => setName(e.target.value)}
+              onChange={(e) => setEditedName(e.target.value)}
               onBlur={() => setTouched(true)}
               aria-invalid={touched && !nameValid}
             />
@@ -289,6 +309,11 @@ export function MinecraftDeployForm({ game, onClose }: { game: GameTemplate; onC
                     <Package className="size-4 text-muted-foreground" />
                   )}
                   <span className="flex-1 truncate text-sm font-medium">{modpack.title}</span>
+                  {(modpack.loaders ?? []).length > 0 && (
+                    <span className="shrink-0 rounded border px-1 py-0.5 text-[10px] text-muted-foreground">
+                      {modpack.loaders.map(loaderLabel).join(" · ")}
+                    </span>
+                  )}
                   <button
                     type="button"
                     title="Remove modpack"
@@ -321,11 +346,31 @@ export function MinecraftDeployForm({ game, onClose }: { game: GameTemplate; onC
                 </div>
               )}
 
-              <Input
-                value={query}
-                onChange={(e) => setQuery(e.target.value)}
-                placeholder={`Search Modrinth ${contentNoun}${resolvedVersion ? ` for ${resolvedVersion}` : ""}…`}
-              />
+              <div className="flex gap-2">
+                <Input
+                  className="flex-1"
+                  value={query}
+                  onChange={(e) => setQuery(e.target.value)}
+                  placeholder="Search content…"
+                />
+                {contentKind === "modpack" && (
+                  <Select
+                    value={packLoader}
+                    onValueChange={(v) => setPackLoader(v as ModpackLoader)}
+                  >
+                    <SelectTrigger className="w-32 shrink-0" title="Filter modpacks by mod loader">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {MODPACK_LOADER_OPTIONS.map((opt) => (
+                        <SelectItem key={opt.value} value={opt.value}>
+                          {opt.label}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                )}
+              </div>
 
               {search.isError ? (
                 <p className="text-xs text-muted-foreground">
@@ -367,6 +412,11 @@ export function MinecraftDeployForm({ game, onClose }: { game: GameTemplate; onC
                             {hit.description}
                           </span>
                         </span>
+                        {contentKind === "modpack" && (hit.loaders ?? []).length > 0 && (
+                          <span className="shrink-0 rounded border px-1 py-0.5 text-[10px] text-muted-foreground">
+                            {hit.loaders.map(loaderLabel).join(" · ")}
+                          </span>
+                        )}
                         <span className="shrink-0 text-xs text-muted-foreground">
                           {formatDownloads(hit.downloads)} ↓
                         </span>
@@ -417,8 +467,8 @@ export function MinecraftDeployForm({ game, onClose }: { game: GameTemplate; onC
                 </div>
                 {secretKeys.length > 0 && (
                   <p className="text-xs text-muted-foreground">
-                    {secretKeys.join(", ")} come from cluster secrets — configure them on the Setup
-                    screen.
+                    {secretKeys.join(", ")} come from the secrets store — configure them on the
+                    Setup screen.
                   </p>
                 )}
               </>

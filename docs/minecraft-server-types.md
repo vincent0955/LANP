@@ -92,7 +92,10 @@ Memory [6G v]        ▸ Advanced configuration
 - **Modpack** type: the content search becomes a modpack search (same Modrinth
   API, `project_type=modpack`); picking one sets `MODRINTH_MODPACK`. Pasting a
   URL/slug still works. Extra individual mods on top of a pack are allowed —
-  itzg applies `MODRINTH_PROJECTS` alongside the pack.
+  itzg applies `MODRINTH_PROJECTS` alongside the pack. A loader filter
+  (Any/Forge/NeoForge/Fabric/Quilt) narrows the browse, and results show each
+  pack's loader — packs bundle their own loader, so this is discovery only;
+  itzg installs whatever the pack pins.
 - **Memory** becomes a first-class dropdown (it's the one knob every Minecraft
   admin touches); everything else stays under the existing generic config list,
   collapsed as "Advanced configuration".
@@ -156,7 +159,8 @@ Proxied rather than called from the browser so that: the required descriptive
 (Modrinth rate limit is 300 req/min/IP); and the keyless-services policy stays
 enforceable in one place. Facets: `project_type`, `categories:<loader>`,
 `versions:<mcVersion>`; `kind=plugin` searches `project_type=plugin` with
-`categories:paper|purpur`.
+`categories:paper|purpur`; `kind=modpack` takes `loader` (loaders are Modrinth
+categories) but never `mcVersion` — the pack pins its own version.
 
 ### 3. Template model changes
 
@@ -171,15 +175,26 @@ enforceable in one place. Facets: `project_type`, `categories:<loader>`,
 
 ### 4. Java version matrix
 
-Old Minecraft versions crash on new JVMs, and `itzg` publishes per-Java tags.
-The backend owns a version→image-tag matrix applied at deploy time:
+Old Minecraft versions crash on new JVMs, new versions refuse to start on old
+JVMs (UnsupportedClassVersionError — hit live 2026-07-18 with MC 26.2 on the
+java21 image), and `itzg` publishes per-Java tags. The backend owns a
+version→image-tag matrix applied at deploy time:
 
 | MC version | Image tag |
 |---|---|
 | ≤ 1.16.5 | `itzg/minecraft-server:java8` |
 | 1.17.x | `itzg/minecraft-server:java17` |
 | 1.18 – 1.20.4 | `itzg/minecraft-server:java17` |
-| 1.20.5+ / LATEST / modpacks | `itzg/minecraft-server:java21` |
+| 1.20.5 – 1.21.x | `itzg/minecraft-server:java21` |
+| Year-based versions (26.x+) / LATEST / snapshots | `itzg/minecraft-server:java25` |
+
+Modpacks resolve through the same matrix: the deploy path asks Modrinth which
+Minecraft version the pack's newest release pins
+(`GET /v2/project/{slug}/version`, keyless, cached) and feeds it in. The old
+"modpacks always get java21" guess broke live on 2026-07-18 — a 26.x-era
+Fabric pack refused to start on java21 with UnsupportedClassVersionError.
+java21 remains only as the fallback when the lookup fails (Modrinth
+unreachable, or MODRINTH_MODPACK is a URL/file rather than a slug).
 
 Because `GameCatalogService` keys templates by exact image tag, the template
 gains an `ImageTagAliases` set and lookup checks aliases too. This

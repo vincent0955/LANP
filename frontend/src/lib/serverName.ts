@@ -9,14 +9,29 @@ export function isValidServerName(name: string): boolean {
   return name.length > 0 && name.length <= 63 && DNS1123_LABEL.test(name);
 }
 
-/** Suggest a valid server name from a game display name, e.g. "Counter-Strike 2" → "counter-strike-2". */
-export function suggestServerName(displayName: string): string {
-  return (
+/**
+ * Suggest a valid server name from a game display name, e.g. "Counter-Strike 2"
+ * → "counter-strike-2". Names already in `existingNames` are skipped by
+ * appending -2, -3, … so deploying the same game again suggests a free name.
+ */
+export function suggestServerName(
+  displayName: string,
+  existingNames: Iterable<string> = [],
+): string {
+  const base =
     displayName
       .toLowerCase()
       .replace(/[^a-z0-9]+/g, "-")
       .replace(/^-+|-+$/g, "")
       .slice(0, 63)
-      .replace(/-+$/g, "") || "server"
-  );
+      .replace(/-+$/g, "") || "server";
+
+  const taken = new Set(existingNames);
+  if (!taken.has(base)) return base;
+  for (let n = 2; ; n++) {
+    const suffix = `-${n}`;
+    const candidate =
+      base.slice(0, 63 - suffix.length).replace(/-+$/g, "") + suffix;
+    if (!taken.has(candidate)) return candidate;
+  }
 }

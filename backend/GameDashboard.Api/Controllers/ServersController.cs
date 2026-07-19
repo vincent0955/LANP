@@ -1,4 +1,4 @@
-using GameDashboard.Api.Models;
+﻿using GameDashboard.Api.Models;
 using GameDashboard.Api.Services;
 using Microsoft.AspNetCore.Mvc;
 
@@ -19,19 +19,19 @@ namespace GameDashboard.Api.Controllers;
 [Route("api/servers")]
 public sealed class ServersController : ControllerBase
 {
-    private readonly IKubernetesService _kubernetesService;
+    private readonly IServerOrchestrator _orchestrator;
     private readonly IRconService _rconService;
 
-    public ServersController(IKubernetesService kubernetesService, IRconService rconService)
+    public ServersController(IServerOrchestrator orchestrator, IRconService rconService)
     {
-        _kubernetesService = kubernetesService;
+        _orchestrator = orchestrator;
         _rconService = rconService;
     }
 
     [HttpGet]
     public async Task<IActionResult> ListServers(CancellationToken ct)
     {
-        var servers = await _kubernetesService.ListServersAsync(ct);
+        var servers = await _orchestrator.ListServersAsync(ct);
         return Ok(servers);
     }
 
@@ -43,7 +43,7 @@ public sealed class ServersController : ControllerBase
             return InvalidNameProblem(name);
         }
 
-        var server = await _kubernetesService.GetServerAsync(name, ct);
+        var server = await _orchestrator.GetServerAsync(name, ct);
         if (server is null)
         {
             return Problem(
@@ -72,7 +72,7 @@ public sealed class ServersController : ControllerBase
                 statusCode: StatusCodes.Status400BadRequest);
         }
 
-        var created = await _kubernetesService.DeployServerAsync(request, ct);
+        var created = await _orchestrator.DeployServerAsync(request, ct);
         return CreatedAtAction(nameof(GetServer), new { name = created.Name }, created);
     }
 
@@ -91,8 +91,8 @@ public sealed class ServersController : ControllerBase
                 statusCode: StatusCodes.Status400BadRequest);
         }
 
-        await _kubernetesService.ScaleServerAsync(name, request.Replicas, ct);
-        var updated = await _kubernetesService.GetServerAsync(name, ct);
+        await _orchestrator.ScaleServerAsync(name, request.Replicas, ct);
+        var updated = await _orchestrator.GetServerAsync(name, ct);
         return Ok(updated);
     }
 
@@ -104,7 +104,7 @@ public sealed class ServersController : ControllerBase
             return InvalidNameProblem(name);
         }
 
-        await _kubernetesService.DeleteServerAsync(name, deleteData, ct);
+        await _orchestrator.DeleteServerAsync(name, deleteData, ct);
         return NoContent();
     }
 
@@ -116,7 +116,7 @@ public sealed class ServersController : ControllerBase
             return InvalidNameProblem(name);
         }
 
-        var config = await _kubernetesService.GetConfigAsync(name, ct);
+        var config = await _orchestrator.GetConfigAsync(name, ct);
         return Ok(config);
     }
 
@@ -136,7 +136,7 @@ public sealed class ServersController : ControllerBase
                 statusCode: StatusCodes.Status400BadRequest);
         }
 
-        await _kubernetesService.UpdateConfigAsync(name, values, ct);
+        await _orchestrator.UpdateConfigAsync(name, values, ct);
         return NoContent();
     }
 

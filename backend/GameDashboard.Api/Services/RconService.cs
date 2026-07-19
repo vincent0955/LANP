@@ -1,12 +1,11 @@
 using System.Net;
+using System.Text.Json;
 using System.Text.RegularExpressions;
 using CoreRCON;
-using GameDashboard.Api.Configuration;
+using Docker.DotNet;
 using GameDashboard.Api.Exceptions;
 using GameDashboard.Api.Models;
-using k8s;
-using k8s.Autorest;
-using Microsoft.Extensions.Options;
+using GameDashboard.Api.Services.Docker;
 
 namespace GameDashboard.Api.Services;
 
@@ -20,17 +19,17 @@ public sealed partial class RconService : IRconService
     private static readonly TimeSpan ConnectTimeout = TimeSpan.FromSeconds(3);
     private static readonly TimeSpan CommandTimeout = TimeSpan.FromSeconds(3);
 
-    private readonly IKubernetesClientFactory _clientFactory;
-    private readonly DashboardOptions _options;
+    private readonly IDockerClientFactory _clientFactory;
+    private readonly ISecretsStore _secretsStore;
     private readonly ILogger<RconService> _logger;
 
     public RconService(
-        IKubernetesClientFactory clientFactory,
-        IOptions<DashboardOptions> options,
+        IDockerClientFactory clientFactory,
+        ISecretsStore secretsStore,
         ILogger<RconService> logger)
     {
         _clientFactory = clientFactory;
-        _options = options.Value;
+        _secretsStore = secretsStore;
         _logger = logger;
     }
 
@@ -47,7 +46,7 @@ public sealed partial class RconService : IRconService
             using var rcon = await ConnectAsync(connection, ct);
             if (rcon is null)
             {
-                return null; // connection/auth failed — fail soft (Req 10.3)
+                return null; // connection/auth failed — fail soft
             }
 
             var response = await SendWithTimeoutAsync(rcon, connection.QueryCommand, ct);
@@ -79,71 +78,89 @@ public sealed partial class RconService : IRconService
     private sealed record RconConnection(IPAddress Host, ushort Port, string Password, string QueryCommand, Engine Engine);
 
     /// <summary>
-    /// Resolves the RCON endpoint for a server: NodePort from its Service, password
-    /// from the game-secrets Secret. Returns null (not an exception) if any part is
-    /// missing, so callers can fail soft.
+    /// Resolves the RCON endpoint for a server: host port from the container's
+    /// ports label, password from the local secrets store. Returns null (not an
+    /// exception) if any part is missing, so callers can fail soft.
     /// </summary>
     private async Task<RconConnection?> ResolveConnectionAsync(string serverName, CancellationToken ct)
     {
-        if (!_clientFactory.TryGetClient(out var client, out _))
+        var (client, _) = await _clientFactory.TryGetClientAsync(ct);
+        if (client is null)
         {
             return null;
         }
 
         try
         {
-            var deployment = await client!.AppsV1.ReadNamespacedDeploymentAsync(
-                serverName, _options.Namespace, cancellationToken: ct);
+            var container = await client.Containers.InspectContainerAsync(serverName, ct);
+            var labels = container.Config?.Labels;
+            if (labels is null ||
+                !labels.TryGetValue(ContainerLabels.Managed, out var managed) ||
+                managed != ContainerLabels.ManagedValue)
+            {
+                return null;
+            }
 
-            var appLabel = deployment.Spec?.Selector?.MatchLabels?.TryGetValue("app", out var lbl) == true
-                ? lbl : serverName;
-
-            var services = await client.CoreV1.ListNamespacedServiceAsync(_options.Namespace, cancellationToken: ct);
-            var service = services.Items.FirstOrDefault(s =>
-                s.Spec?.Selector != null &&
-                s.Spec.Selector.TryGetValue("app", out var v) && v == appLabel);
+            var ports = PortsOf(labels);
 
             // Prefer a port explicitly named "rcon" (Source templates name their
             // TCP 27015 RCON channel this way since 2026-07-11). The fallback keeps
             // RCON working for servers deployed before the rename, whose Source TCP
             // port is still named "game-tcp".
-            var rconPort = service?.Spec?.Ports?.FirstOrDefault(p => p.Name == "rcon")?.NodePort
-                ?? service?.Spec?.Ports?.FirstOrDefault(p => p.Name is "game-tcp" or "game")?.NodePort;
-            if (rconPort is null)
+            var rconPort = ports.FirstOrDefault(p => p.Name == "rcon")?.NodePort
+                ?? ports.FirstOrDefault(p => p.Name is "game-tcp" or "game")?.NodePort;
+            if (rconPort is null or 0)
             {
                 return null;
             }
 
-            var (engine, queryCommand, secretKey) = ClassifyEngine(deployment);
+            var (engine, queryCommand, secretKey) = ClassifyEngine(container.Config?.Image ?? "");
 
-            var secret = await client.CoreV1.ReadNamespacedSecretAsync(
-                _options.SecretName, _options.Namespace, cancellationToken: ct);
-            if (secret.Data is null || !secret.Data.TryGetValue(secretKey, out var passwordBytes))
+            var password = await _secretsStore.GetValueAsync(secretKey, ct);
+            if (password is null)
             {
                 return null;
             }
 
-            var password = System.Text.Encoding.UTF8.GetString(passwordBytes);
-
-            // NodePort is reachable via localhost on a single-node Docker Desktop
-            // cluster (design.md: single-node assumption).
+            // Published ports are reachable via localhost in both WSL NAT and
+            // mirrored networking modes.
             return new RconConnection(IPAddress.Loopback, (ushort)rconPort.Value, password, queryCommand, engine);
         }
-        catch (HttpOperationException)
+        catch (DockerContainerNotFoundException)
+        {
+            return null;
+        }
+        catch (DockerApiException)
         {
             return null;
         }
     }
 
+    private static IReadOnlyList<PortMapping> PortsOf(IDictionary<string, string> labels)
+    {
+        if (!labels.TryGetValue(ContainerLabels.Ports, out var json))
+        {
+            return Array.Empty<PortMapping>();
+        }
+
+        try
+        {
+            return JsonSerializer.Deserialize<List<PortMapping>>(json)
+                ?? (IReadOnlyList<PortMapping>)Array.Empty<PortMapping>();
+        }
+        catch (JsonException)
+        {
+            return Array.Empty<PortMapping>();
+        }
+    }
+
     /// <summary>
     /// Determines which RCON query command/protocol dialect to use based on the
-    /// container image. Curated templates only for now (Phase 7 catalog games
-    /// without RCON support will simply resolve to null upstream).
+    /// container image. Curated templates only for now (catalog games without
+    /// RCON support simply resolve to null upstream).
     /// </summary>
-    private static (Engine Engine, string QueryCommand, string SecretKey) ClassifyEngine(k8s.Models.V1Deployment deployment)
+    private static (Engine Engine, string QueryCommand, string SecretKey) ClassifyEngine(string image)
     {
-        var image = deployment.Spec?.Template.Spec?.Containers?.FirstOrDefault()?.Image ?? "";
-
         if (image.Contains("minecraft-server", StringComparison.OrdinalIgnoreCase))
         {
             return (Engine.Minecraft, "list", "RCON_PASSWORD");

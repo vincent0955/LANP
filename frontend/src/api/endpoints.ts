@@ -8,6 +8,7 @@ import type {
   ModrinthSearchResponse,
   NetworkInfo,
   RconCommandResponse,
+  RuntimeStatus,
   ServerDetail,
   ServerSummary,
   SetupStatus,
@@ -56,6 +57,14 @@ export const api = {
     if (params.mcVersion) search.set("mcVersion", params.mcVersion);
     return http.get<ModrinthSearchResponse>(`/api/minecraft/content/search?${search}`);
   },
+
+  runtimeStatus: () => http.get<RuntimeStatus>("/api/runtime/status"),
+  runtimeInstall: () => http.post<void>("/api/runtime/install", {}),
+  runtimeEnableMirrored: () =>
+    http.post<{ applied: boolean; shutdownRequired: boolean }>(
+      "/api/runtime/networking/mirrored",
+      {},
+    ),
 
   metrics: () => http.get<MetricsSnapshot>("/api/metrics"),
 

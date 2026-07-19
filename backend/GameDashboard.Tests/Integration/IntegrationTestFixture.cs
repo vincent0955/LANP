@@ -4,11 +4,11 @@ using Xunit;
 namespace GameDashboard.Tests.Integration;
 
 /// <summary>
-/// Integration tests require a real, reachable Kubernetes cluster (Docker Desktop
-/// locally, or a kind cluster in CI). They are tagged with
+/// Integration tests require a real, reachable Docker engine (Docker Desktop or
+/// the bundled runtime locally, a native dockerd in CI). They are tagged with
 /// [Trait("Category", "Integration")] and excluded from the default `dotnet test`
 /// run — see the README for the exact filter — so that normal unit-test runs never
-/// require Docker Desktop to be running.
+/// require an engine to be running.
 ///
 /// To run integration tests explicitly:
 ///   dotnet test --filter "Category=Integration"
@@ -25,9 +25,9 @@ public static class IntegrationTestCollection
 
 /// <summary>
 /// Shared fixture: boots the real ASP.NET Core app (via WebApplicationFactory) once
-/// for all integration tests in the collection, pointed at whatever Kubernetes
-/// cluster the machine's kubeconfig resolves to. Tests are responsible for their
-/// own resource cleanup (each test deploys uniquely-named, disposable servers).
+/// for all integration tests in the collection, pointed at whatever Docker engine
+/// the client factory's endpoint probing resolves to. Tests are responsible for
+/// their own resource cleanup (each test deploys uniquely-named, disposable servers).
 /// </summary>
 public sealed class IntegrationTestFixture : WebApplicationFactory<Program>, IAsyncLifetime
 {

@@ -47,13 +47,13 @@ export function OverviewTab({ server }: { server: ServerDetail }) {
   const networkInfo = useNetworkInfo().data;
   const lanAddress = networkInfo?.lanAddresses[0];
   const publicAddress = networkInfo?.publicAddress;
-  // One-time router setup: the backend allocates every NodePort from this small
+  // One-time router setup: the backend allocates every host port from this small
   // window, so forwarding it once covers all current and future servers.
   const forwardRange = networkInfo
     ? `${networkInfo.nodePortRangeStart}–${networkInfo.nodePortRangeEnd}`
     : null;
   // RCON is an admin channel, not a join address — the app's RCON tab already
-  // covers it in-cluster, and sharing it would hand out server control.
+  // covers it locally, and sharing it would hand out server control.
   const shareablePorts = server.ports.filter((p) => !p.name.toLowerCase().includes("rcon"));
   // Templates list the primary game port first, so the first shareable port is
   // the one players actually join through.

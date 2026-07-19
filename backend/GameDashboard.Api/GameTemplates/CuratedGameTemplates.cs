@@ -120,7 +120,8 @@ public static class CuratedGameTemplates
         {
             MinecraftJavaImage.Java8,
             MinecraftJavaImage.Java17,
-            MinecraftJavaImage.Java21
+            MinecraftJavaImage.Java21,
+            MinecraftJavaImage.Java25
         });
 
     /// <summary>All curated templates, keyed by image tag for catalog lookup.</summary>

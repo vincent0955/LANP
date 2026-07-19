@@ -1,33 +1,28 @@
-using GameDashboard.Api.Configuration;
 using GameDashboard.Api.Hubs;
 using GameDashboard.Api.RealTime;
-using GameDashboard.Api.Services;
+using GameDashboard.Api.Services.Docker;
 using Microsoft.AspNetCore.SignalR;
 using Microsoft.Extensions.Logging.Abstractions;
-using Microsoft.Extensions.Options;
 using Moq;
 
 namespace GameDashboard.Tests.RealTime;
 
 /// <summary>
 /// Covers LogStreamManager's subscriber bookkeeping (group membership, start/stop
-/// decisions) without touching a live Kubernetes log stream. The read loop itself
-/// (RunReadLoopAsync) requires a live cluster and is exercised in the live
+/// decisions) without touching a live Docker log stream. The read loop itself
+/// (RunReadLoopAsync) requires a live engine and is exercised in the live
 /// verification pass instead.
 /// </summary>
 public class LogStreamManagerTests
 {
-    private const string Namespace = "game-servers";
-
-    private static LogStreamManager CreateManager(out Mock<IKubernetesClientFactory> factory)
+    private static LogStreamManager CreateManager(out Mock<IDockerClientFactory> factory)
     {
-        factory = new Mock<IKubernetesClientFactory>();
-        // Cluster unreachable so SubscribeAsync's background read loop exits quickly
+        factory = new Mock<IDockerClientFactory>();
+        // Engine unreachable so SubscribeAsync's background read loop exits quickly
         // and quietly (logged warning, no exception) — subscriber bookkeeping is
         // independent of whether the underlying stream actually started.
-        k8s.IKubernetes? nullClient = null;
-        string? err = "unreachable";
-        factory.Setup(f => f.TryGetClient(out nullClient, out err)).Returns(false);
+        factory.Setup(f => f.TryGetClientAsync(It.IsAny<CancellationToken>()))
+            .ReturnsAsync(((Docker.DotNet.IDockerClient?)null, "unreachable"));
 
         var hubContext = new Mock<IHubContext<DashboardHub>>();
         var clientsMock = new Mock<IHubClients>();
@@ -35,8 +30,7 @@ public class LogStreamManagerTests
         clientsMock.Setup(c => c.Group(It.IsAny<string>())).Returns(Mock.Of<IClientProxy>());
         hubContext.Setup(h => h.Clients).Returns(clientsMock.Object);
 
-        var options = Options.Create(new DashboardOptions { Namespace = Namespace });
-        return new LogStreamManager(factory.Object, hubContext.Object, options, NullLogger<LogStreamManager>.Instance);
+        return new LogStreamManager(factory.Object, hubContext.Object, NullLogger<LogStreamManager>.Instance);
     }
 
     [Fact]

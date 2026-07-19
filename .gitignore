@@ -31,3 +31,6 @@ TestResults/
 # OS-specific
 .DS_Store
 Thumbs.db
+
+# Bundled runtime rootfs (80MB artifact; build with scripts/runtime/build-wsl-distro.sh)
+scripts/runtime/*.tar.gz

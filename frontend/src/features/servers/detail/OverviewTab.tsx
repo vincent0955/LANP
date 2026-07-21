@@ -4,6 +4,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { useNetworkInfo } from "@/api/queries";
 import { formatDateTime } from "@/lib/format";
 import type { ServerDetail } from "@/api/types";
+import { ConnectivityPanel } from "./ConnectivityPanel";
 
 /** A join address rendered as a click-to-copy chip. */
 function CopyableAddress({ address, large = false }: { address: string; large?: boolean }) {
@@ -169,6 +170,8 @@ export function OverviewTab({ server }: { server: ServerDetail }) {
           </CardContent>
         </Card>
       </div>
+
+      {joinPort && <ConnectivityPanel server={server} />}
     </div>
   );
 }

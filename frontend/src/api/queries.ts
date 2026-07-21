@@ -15,6 +15,7 @@ export const queryKeys = {
   games: (search: string) => ["games", search] as const,
   metrics: ["metrics"] as const,
   network: ["network"] as const,
+  forwardingGuide: (name: string) => ["network", "forwarding-guide", name] as const,
   backupSettings: ["backups", "settings"] as const,
   runtime: ["runtime"] as const,
   minecraftVersions: (type: string) => ["minecraft", "versions", type] as const,
@@ -101,6 +102,22 @@ export function useNetworkInfo() {
     queryFn: api.networkInfo,
     staleTime: Infinity,
   });
+}
+
+// Forwarding instructions are derived from the server's fixed allocated ports —
+// they don't change unless the server is redeployed, so cache generously.
+export function useForwardingGuide(name: string) {
+  return useQuery({
+    queryKey: queryKeys.forwardingGuide(name),
+    queryFn: () => api.forwardingGuide(name),
+    staleTime: 5 * 60_000,
+  });
+}
+
+// On-demand connectivity test: a GET run through a mutation so the "Test" button
+// gets explicit pending/result state instead of auto-fetching on mount.
+export function useReachabilityTest(name: string) {
+  return useMutation({ mutationFn: () => api.reachability(name) });
 }
 
 export function useDeployServer() {

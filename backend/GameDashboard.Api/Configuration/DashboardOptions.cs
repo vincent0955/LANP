@@ -82,6 +82,25 @@ public sealed class DashboardOptions
     public MetricsOptions Metrics { get; set; } = new();
     public RuntimeOptions Runtime { get; set; } = new();
     public BackupOptions Backup { get; set; } = new();
+    public NetworkOptions Network { get; set; } = new();
+}
+
+/// <summary>
+/// Network diagnostics settings (WS2): CGNAT detection, per-server reachability
+/// probing, and forwarding-guide generation. The outside-in probe uses a keyless
+/// public checker (no account, in keeping with the zero-setup constraint); if it
+/// is unreachable the probe reports "unverified" rather than erroring.
+/// </summary>
+public sealed class NetworkOptions
+{
+    /// <summary>Enables the best-effort outside-in port reachability probe. Local checks always run.</summary>
+    public bool ReachabilityProbeEnabled { get; set; } = true;
+
+    /// <summary>
+    /// Base URL of the keyless check-host.net-compatible TCP checker. The probe
+    /// degrades gracefully to "unverified" if this is unset or unreachable.
+    /// </summary>
+    public string PortCheckBaseUrl { get; set; } = "https://check-host.net";
 }
 
 /// <summary>

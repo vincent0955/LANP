@@ -104,6 +104,16 @@ builder.Services.AddHostedService<BackupSchedulerService>();
 builder.Services.AddHttpClient();
 builder.Services.AddSingleton<IPublicIpService, PublicIpService>();
 
+// --- Network diagnostics (WS2): CGNAT detection, reachability probe, forwarding guide ---
+builder.Services.AddHttpClient(nameof(CheckHostPortChecker), client =>
+{
+    client.Timeout = TimeSpan.FromSeconds(10);
+    client.DefaultRequestHeaders.UserAgent.ParseAdd(
+        "game-dashboard/1.0 (github.com/vincent0955/source-server-cluster)");
+});
+builder.Services.AddSingleton<IExternalPortChecker, CheckHostPortChecker>();
+builder.Services.AddScoped<INetworkDiagnosticsService, NetworkDiagnosticsService>();
+
 // --- Minecraft deploy metadata (versions + Modrinth search, all keyless) ---
 builder.Services.AddMemoryCache();
 builder.Services.AddHttpClient<IMinecraftMetadataService, MinecraftMetadataService>(client =>

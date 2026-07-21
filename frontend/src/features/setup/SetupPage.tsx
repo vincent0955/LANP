@@ -2,6 +2,7 @@ import { AlertTriangle, CheckCircle2 } from "lucide-react";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { useSetupStatus } from "@/api/queries";
 import { RuntimeCard } from "./RuntimeCard";
+import { NetworkCard } from "./NetworkCard";
 
 export function SetupPage() {
   const setup = useSetupStatus();
@@ -19,6 +20,8 @@ export function SetupPage() {
 
       {/* Self-hides once the runtime is installed and running. */}
       <RuntimeCard />
+
+      <NetworkCard />
 
       {runtimeOk && warnings.length === 0 && (
         <div className="flex items-center gap-2 text-sm text-muted-foreground">

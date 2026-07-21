@@ -5,6 +5,7 @@ import type {
   BackupSettings,
   ClusterHealth,
   DeployServerRequest,
+  ForwardingGuide,
   GameTemplate,
   MetricsSnapshot,
   MinecraftVersionsResponse,
@@ -13,6 +14,7 @@ import type {
   RconCommandResponse,
   RuntimeStatus,
   ServerDetail,
+  ServerReachability,
   ServerSecretInfo,
   ServerSummary,
   SetupStatus,
@@ -116,6 +118,12 @@ export const api = {
   metrics: () => http.get<MetricsSnapshot>("/api/metrics"),
 
   networkInfo: () => http.get<NetworkInfo>("/api/network"),
+  reachability: (name: string) =>
+    http.get<ServerReachability>(`/api/network/reachability/${encodeURIComponent(name)}`),
+  forwardingGuide: (name: string) =>
+    http.get<ForwardingGuide>(
+      `/api/network/servers/${encodeURIComponent(name)}/forwarding-guide`,
+    ),
 
   backupSettings: () => http.get<BackupSettings>("/api/backups/settings"),
   updateBackupSettings: (settings: BackupSettings) =>

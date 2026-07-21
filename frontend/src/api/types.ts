@@ -213,6 +213,45 @@ export interface NetworkInfo {
   nodePortRangeEnd: number;
 }
 
+export type ReachabilityState = "Open" | "Closed" | "Unverified";
+
+/** Reachability of one published port (WS2). */
+export interface PortReachability {
+  name: string;
+  protocol: string;
+  port: number;
+  /** Reliable local signal: the port is published and answering on this machine. */
+  locallyListening: boolean;
+  /** Best-effort outside-in result. */
+  external: ReachabilityState;
+  detail: string | null;
+}
+
+/** A server's connectivity diagnosis (WS2). */
+export interface ServerReachability {
+  serverName: string;
+  publicAddress: string | null;
+  cgnatDetected: boolean;
+  cgnatDetail: string | null;
+  ports: PortReachability[];
+}
+
+export interface ForwardingRule {
+  name: string;
+  protocol: string;
+  port: number;
+}
+
+/** Exact per-server forwarding instructions (WS2). */
+export interface ForwardingGuide {
+  serverName: string;
+  lanAddresses: string[];
+  publicAddress: string | null;
+  rules: ForwardingRule[];
+  firewallCommands: string[];
+  note: string | null;
+}
+
 // SignalR hub payloads (GameDashboard.Api/RealTime/HubEvents.cs). Every hub
 // event carries a single message object argument, not positional arguments.
 

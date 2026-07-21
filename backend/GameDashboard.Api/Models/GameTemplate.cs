@@ -1,3 +1,5 @@
+using System.Text.Json.Serialization;
+
 namespace GameDashboard.Api.Models;
 
 /// <summary>
@@ -32,7 +34,21 @@ public record GameTemplate(
     /// Deploys may run a variant image (Minecraft's per-Java-version tags) and
     /// existing deployments may reference retired tags; both must keep resolving.
     /// </summary>
-    IReadOnlyList<string>? ImageTagAliases = null);
+    IReadOnlyList<string>? ImageTagAliases = null,
+    /// <summary>
+    /// The subset of <see cref="SecretKeyRefs"/> store keys the app generates and
+    /// owns itself (e.g. RCON passwords) rather than asking the user for. These
+    /// are auto-filled with a strong random value on first need, so a server whose
+    /// only secrets are managed starts with no manual entry. User-supplied secrets
+    /// (e.g. a Steam GSLT) stay out of this set and remain the start gate.
+    /// </summary>
+    IReadOnlyList<string>? ManagedSecretKeys = null)
+{
+    /// <summary>Non-null view of <see cref="ManagedSecretKeys"/> (server-side only).</summary>
+    [JsonIgnore]
+    public IReadOnlyList<string> ManagedSecretKeysOrEmpty =>
+        ManagedSecretKeys ?? Array.Empty<string>();
+}
 
 /// <summary>Serialized as a string (global JsonStringEnumConverter), e.g. "MinecraftJava".</summary>
 public enum TemplateKind

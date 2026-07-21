@@ -1,3 +1,4 @@
+using System.Security.Cryptography;
 using System.Text.Json;
 using Docker.DotNet;
 using Docker.DotNet.Models;
@@ -119,12 +120,13 @@ public sealed class DockerService : IServerOrchestrator
             var storeKeys = SecretKeyRefsOf(container.Config?.Labels).Values
                 .Distinct(StringComparer.Ordinal)
                 .OrderBy(k => k, StringComparer.Ordinal);
+            var managed = ManagedSecretKeysOf(container.Config?.Labels);
 
             var result = new List<ServerSecretInfo>();
             foreach (var key in storeKeys)
             {
                 var value = await _secretsStore.GetValueAsync(ServerSecretKey.Scope(name, key), ct);
-                result.Add(new ServerSecretInfo(key, value is not null));
+                result.Add(new ServerSecretInfo(key, value is not null, managed.Contains(key)));
             }
             return (IReadOnlyList<ServerSecretInfo>)result;
         });
@@ -178,6 +180,32 @@ public sealed class DockerService : IServerOrchestrator
             {
                 throw new KeyNotFoundException($"No value is set for secret '{key}' on server '{name}'.");
             }
+
+            await RecreateWithSecretsAsync(client, name, container, ConfigOf(container.Config!.Labels!), ct);
+            return true;
+        });
+    }
+
+    public async Task RegenerateServerSecretAsync(string name, string key, CancellationToken ct)
+    {
+        var client = await RequireClientAsync(ct);
+        await RunAsync(async () =>
+        {
+            var container = await InspectOrThrowAsync(client, name, ct);
+            if (!ManagedSecretKeysOf(container.Config?.Labels).Contains(key))
+            {
+                // Only app-managed secrets can be regenerated — a user-supplied
+                // secret (e.g. a Steam GSLT) has no meaningful value we can mint.
+                throw new ArgumentException(
+                    $"'{key}' is not an app-managed secret on server '{name}', so it can't be regenerated. " +
+                    "Set its value directly instead.");
+            }
+
+            var scoped = new Dictionary<string, string>(StringComparer.Ordinal)
+            {
+                [ServerSecretKey.Scope(name, key)] = GenerateSecretValue(),
+            };
+            await _secretsStore.SetAsync(scoped, ct);
 
             await RecreateWithSecretsAsync(client, name, container, ConfigOf(container.Config!.Labels!), ct);
             return true;
@@ -329,11 +357,15 @@ public sealed class DockerService : IServerOrchestrator
                 // Good — does not exist yet.
             }
 
-            // Secrets are entered on the server's page after it exists, so a
-            // deploy no longer requires them: bake in whatever is already set
-            // and, when required secrets are still missing, create the container
-            // but leave it stopped rather than starting a server that can't work.
-            var (secretEnv, missingSecrets) = await ResolveSecretEnvAsync(request.Name, template.SecretKeyRefs, ct);
+            // User-supplied secrets are entered on the server's page after it
+            // exists, so a deploy no longer requires them: app-managed secrets
+            // (e.g. RCON passwords) are generated here, and whatever user secrets
+            // are already set are baked in. When a user secret is still missing
+            // the container is created but left stopped rather than starting a
+            // server that can't work.
+            var (secretEnv, missingSecrets) = await ResolveSecretEnvAsync(
+                request.Name, template.SecretKeyRefs,
+                template.ManagedSecretKeysOrEmpty.ToHashSet(StringComparer.Ordinal), ct);
             var startAfterCreate = missingSecrets.Count == 0;
 
             var modpackMcVersion = await ResolveModpackMinecraftVersionAsync(template, request, ct);
@@ -487,11 +519,12 @@ public sealed class DockerService : IServerOrchestrator
 
             if (replicas == 1)
             {
-                // Required secrets are entered on the server's page after deploy;
-                // refuse to start (409) until they are all set, with a message
-                // naming exactly what is missing.
+                // App-managed secrets are generated on the fly here; user-supplied
+                // secrets are entered on the server's page after deploy. Refuse to
+                // start (409) until every user secret is set, naming what's missing.
                 var (_, missingSecrets) = await ResolveSecretEnvAsync(
-                    name, SecretKeyRefsOf(container.Config?.Labels), ct);
+                    name, SecretKeyRefsOf(container.Config?.Labels),
+                    ManagedSecretKeysOf(container.Config?.Labels), ct);
                 if (missingSecrets.Count > 0)
                 {
                     throw new InvalidOperationException(
@@ -620,7 +653,8 @@ public sealed class DockerService : IServerOrchestrator
     {
         var labels = container.Config!.Labels!;
         var ports = PortsOf(labels);
-        var (secretEnv, _) = await ResolveSecretEnvAsync(name, SecretKeyRefsOf(labels), ct);
+        var (secretEnv, _) = await ResolveSecretEnvAsync(
+            name, SecretKeyRefsOf(labels), ManagedSecretKeysOf(labels), ct);
         var wasRunning = container.State?.Running == true || container.State?.Status == "restarting";
 
         var newLabels = new Dictionary<string, string>(labels)
@@ -760,19 +794,33 @@ public sealed class DockerService : IServerOrchestrator
 
     /// <summary>
     /// Resolves a server's secret env vars from the per-server scope of the
-    /// store. Never throws on a missing value — it returns which store keys had
-    /// none, so callers decide what to do: deploy/recreate bake in whatever is
-    /// set (partial is fine), while start refuses until nothing is missing.
+    /// store. App-managed store keys (<paramref name="managedKeys"/>) missing a
+    /// value are generated here and persisted, so they never count as missing —
+    /// a server whose only secrets are managed always resolves complete. Never
+    /// throws on a missing user secret: it returns which store keys had none, so
+    /// callers decide what to do (deploy/recreate bake in whatever is set; start
+    /// refuses until nothing is missing).
     /// </summary>
     private async Task<(Dictionary<string, string> Env, List<string> Missing)> ResolveSecretEnvAsync(
-        string serverName, IReadOnlyDictionary<string, string> secretKeyRefs, CancellationToken ct)
+        string serverName, IReadOnlyDictionary<string, string> secretKeyRefs,
+        IReadOnlySet<string> managedKeys, CancellationToken ct)
     {
         var env = new Dictionary<string, string>();
         var missing = new List<string>();
+        var generated = new Dictionary<string, string>(StringComparer.Ordinal);
 
         foreach (var (envName, storeKey) in secretKeyRefs)
         {
             var value = await _secretsStore.GetValueAsync(ServerSecretKey.Scope(serverName, storeKey), ct);
+            if (value is null && managedKeys.Contains(storeKey))
+            {
+                // App-managed (e.g. an RCON password): mint a strong value the
+                // first time it's needed and remember it, so the user is never
+                // asked for it and the server can start on its own.
+                value = GenerateSecretValue();
+                generated[ServerSecretKey.Scope(serverName, storeKey)] = value;
+            }
+
             if (value is null)
             {
                 missing.Add(storeKey);
@@ -783,7 +831,45 @@ public sealed class DockerService : IServerOrchestrator
             }
         }
 
+        if (generated.Count > 0)
+        {
+            await _secretsStore.SetAsync(generated, ct);
+        }
+
         return (env, missing);
+    }
+
+    /// <summary>
+    /// The app-managed store keys for a server, derived from its game template
+    /// (resolved via the image-tag label). Every managed container carries that
+    /// label, so existing servers pick up managed-secret handling automatically;
+    /// a container whose template no longer resolves yields none (safe: its
+    /// secrets are then treated as user-supplied and gate start as before).
+    /// </summary>
+    private static IReadOnlySet<string> ManagedSecretKeysOf(IDictionary<string, string>? labels)
+    {
+        if (labels is not null &&
+            labels.TryGetValue(ContainerLabels.ImageTag, out var tag) &&
+            CuratedGameTemplates.ResolveByTag(tag) is { } template)
+        {
+            return new HashSet<string>(template.ManagedSecretKeysOrEmpty, StringComparer.Ordinal);
+        }
+
+        return new HashSet<string>(StringComparer.Ordinal);
+    }
+
+    /// <summary>
+    /// Generates a strong, URL-safe random secret (e.g. an RCON password). 24
+    /// random bytes → 32 base64url chars, unambiguous in env vars and RCON.
+    /// </summary>
+    private static string GenerateSecretValue()
+    {
+        Span<byte> bytes = stackalloc byte[24];
+        RandomNumberGenerator.Fill(bytes);
+        return Convert.ToBase64String(bytes)
+            .Replace('+', '-')
+            .Replace('/', '_')
+            .TrimEnd('=');
     }
 
     private static async Task<IReadOnlySet<int>> GatherUsedHostPortsAsync(
@@ -896,7 +982,8 @@ public sealed class DockerService : IServerOrchestrator
             Name: name,
             Game: labels?.TryGetValue(ContainerLabels.Game, out var game) == true ? game : name,
             Image: container.Image,
-            Status: ContainerStatusMapper.Map(container.State, ready),
+            Status: ContainerStatusMapper.Map(
+                container.State, ready, _deployTracker.Get(name) is { Failed: false }),
             Replicas: ContainerStatusMapper.Replicas(container.State),
             CreatedAt: CreatedAtOf(labels, container.Created));
     }
@@ -914,7 +1001,8 @@ public sealed class DockerService : IServerOrchestrator
             Name: name,
             Game: labels?.TryGetValue(ContainerLabels.Game, out var game) == true ? game : name,
             Image: container.Config?.Image ?? "unknown",
-            Status: ContainerStatusMapper.Map(state, ready),
+            Status: ContainerStatusMapper.Map(
+                state, ready, _deployTracker.Get(name) is { Failed: false }),
             Replicas: ContainerStatusMapper.Replicas(state),
             CreatedAt: CreatedAtOf(labels, container.Created),
             Ports: ports,

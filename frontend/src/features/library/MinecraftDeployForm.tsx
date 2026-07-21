@@ -118,7 +118,12 @@ export function MinecraftDeployForm({ game, onClose }: { game: GameTemplate; onC
     () => Object.keys(game.defaultConfig).filter((key) => key !== "MEMORY"),
     [game],
   );
-  const secretKeys = useMemo(() => Object.keys(game.secretKeyRefs), [game]);
+  // App-managed secrets (Minecraft's RCON password) are generated automatically,
+  // so only user-supplied secrets — if any — are worth surfacing here.
+  const userSecretKeys = useMemo(() => {
+    const managed = new Set(game.managedSecretKeys ?? []);
+    return Object.keys(game.secretKeyRefs).filter((key) => !managed.has(key));
+  }, [game]);
 
   const changeSoftware = (next: ServerSoftware) => {
     if (next === software) return;
@@ -465,10 +470,11 @@ export function MinecraftDeployForm({ game, onClose }: { game: GameTemplate; onC
                     </div>
                   ))}
                 </div>
-                {secretKeys.length > 0 && (
+                {userSecretKeys.length > 0 && (
                   <p className="text-xs text-muted-foreground">
-                    {secretKeys.join(", ")} are secrets — set them on the server's Secrets tab after
-                    it's created. The server won't start until they're set.
+                    {userSecretKeys.join(", ")} {userSecretKeys.length === 1 ? "is a secret" : "are secrets"} you
+                    provide — set {userSecretKeys.length === 1 ? "it" : "them"} on the server's Secrets tab after it's
+                    created. The server won't start until {userSecretKeys.length === 1 ? "it's" : "they're"} set.
                   </p>
                 )}
               </>

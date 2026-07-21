@@ -48,7 +48,10 @@ public static class CuratedGameTemplates
         {
             ["SRCDS_TOKEN"] = "SRCDS_TOKEN",
             ["CS2_RCONPW"] = "CS2_RCONPW"
-        });
+        },
+        // The RCON password is app-managed (auto-generated per server); only the
+        // Steam GSLT must come from the user, so it alone gates start.
+        ManagedSecretKeys: new[] { "CS2_RCONPW" });
 
     // Fixed 2026-07-11: previously pointed at gameservermanagers/gameserver:vints,
     // but LinuxGSM's "vints" shortname is Vintage Story — the correct Insurgency
@@ -115,6 +118,9 @@ public static class CuratedGameTemplates
         {
             ["RCON_PASSWORD"] = "RCON_PASSWORD"
         },
+        // Minecraft's only secret is the RCON password, which the app manages:
+        // a fresh Minecraft server needs no manual secret entry to start.
+        ManagedSecretKeys: new[] { "RCON_PASSWORD" },
         Kind: TemplateKind.MinecraftJava,
         ImageTagAliases: new[]
         {

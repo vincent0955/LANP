@@ -34,8 +34,10 @@ public record PlayerInfo(int CurrentPlayers, int MaxPlayers, string? CurrentMap)
 
 /// <summary>
 /// One secret a server's game template requires (a store key from its
-/// secretKeyRefs), plus whether a value is currently set for this server.
-/// Values themselves are never included — reading one back requires an explicit
-/// per-key reveal request.
+/// secretKeyRefs), plus whether a value is currently set for this server and
+/// whether the app manages it. <c>Managed</c> secrets (e.g. RCON passwords) are
+/// auto-generated, so they never gate start and are shown as regenerate/override
+/// rather than a required entry. Values themselves are never included — reading
+/// one back requires an explicit per-key reveal request.
 /// </summary>
-public record ServerSecretInfo(string Key, bool Configured);
+public record ServerSecretInfo(string Key, bool Configured, bool Managed);

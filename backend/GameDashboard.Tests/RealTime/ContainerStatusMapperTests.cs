@@ -18,8 +18,11 @@ namespace GameDashboard.Tests.RealTime;
 public class ContainerStatusMapperTests
 {
     [Theory]
-    [InlineData("created", false, ServerStatus.Pending)]
-    [InlineData("created", true, ServerStatus.Pending)]
+    // "created" with no deploy in flight is a container that was created but
+    // deliberately never started (a required secret is unset, or a config edit
+    // recreated a stopped server) — it reads Stopped, not a forever-Pending.
+    [InlineData("created", false, ServerStatus.Stopped)]
+    [InlineData("created", true, ServerStatus.Stopped)]
     [InlineData("removing", false, ServerStatus.Pending)]
     [InlineData("running", true, ServerStatus.Running)]
     [InlineData("running", false, ServerStatus.Pending)] // probe not passing yet
@@ -36,10 +39,20 @@ public class ContainerStatusMapperTests
     }
 
     [Theory]
+    // While a deploy is in flight, the brief window between `docker create` and
+    // `docker start` still reads Pending so the card never flashes Stopped.
+    [InlineData("created", ServerStatus.Pending)]
+    [InlineData("running", ServerStatus.Running)] // running always wins once ready
+    public void Created_During_A_Deploy_Stays_Pending(string? state, ServerStatus expected)
+    {
+        Assert.Equal(expected, ContainerStatusMapper.Map(state, tcpReady: true, deployInFlight: true));
+    }
+
+    [Theory]
     [InlineData("running", 1)]
     [InlineData("restarting", 1)]
-    [InlineData("created", 1)]
     [InlineData("paused", 1)]
+    [InlineData("created", 0)] // never started ⇒ Stopped; a Stop button here is a no-op
     [InlineData("exited", 0)]
     [InlineData("dead", 0)]
     [InlineData("removing", 0)]

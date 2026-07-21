@@ -203,3 +203,15 @@ export function useDeleteServerSecret(name: string) {
     },
   });
 }
+
+export function useRegenerateServerSecret(name: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (key: string) => api.regenerateServerSecret(name, key),
+    onSuccess: () => {
+      // The container is recreated on regenerate, so its status can change too.
+      queryClient.invalidateQueries({ queryKey: queryKeys.serverSecrets(name) });
+      queryClient.invalidateQueries({ queryKey: queryKeys.server(name) });
+    },
+  });
+}

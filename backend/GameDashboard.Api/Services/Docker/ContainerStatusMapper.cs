@@ -10,7 +10,14 @@ namespace GameDashboard.Api.Services.Docker;
 ///
 /// Rules:
 ///   no container, deploy in flight        → Pending (Error if the deploy failed)
-///   created / removing                    → Pending
+///   created, deploy in flight             → Pending (the transient window
+///                                            between `docker create` and start)
+///   created, no deploy in flight          → Stopped (created but deliberately
+///                                            not started — e.g. a required
+///                                            secret is still unset, or a config
+///                                            edit recreated a stopped server;
+///                                            it will never start on its own)
+///   removing                              → Pending
 ///   running, TCP probe passing (or no
 ///     TCP port to probe)                  → Running
 ///   running, probe not passing yet        → Pending (first-boot download)
@@ -23,9 +30,10 @@ namespace GameDashboard.Api.Services.Docker;
 /// </summary>
 public static class ContainerStatusMapper
 {
-    public static ServerStatus Map(string? state, bool tcpReady) => state switch
+    public static ServerStatus Map(string? state, bool tcpReady, bool deployInFlight = false) => state switch
     {
-        "created" or "removing" => ServerStatus.Pending,
+        "created" => deployInFlight ? ServerStatus.Pending : ServerStatus.Stopped,
+        "removing" => ServerStatus.Pending,
         "running" when tcpReady => ServerStatus.Running,
         "running" => ServerStatus.Pending,
         "restarting" => ServerStatus.Error,
@@ -35,11 +43,14 @@ public static class ContainerStatusMapper
 
     /// <summary>
     /// The replicas value reported over the wire (kept from the k8s era:
-    /// 1 = should be running, 0 = stopped).
+    /// 1 = should be running, 0 = stopped) — this is the frontend's Start/Stop
+    /// toggle state. A "created" container has never started, so it is 0
+    /// (Stopped): reporting 1 would show a Stop button whose scale-to-0 is a
+    /// no-op on a non-running container, leaving the server stuck.
     /// </summary>
     public static int Replicas(string? state) => state switch
     {
-        "running" or "restarting" or "created" or "paused" => 1,
+        "running" or "restarting" or "paused" => 1,
         _ => 0,
     };
 }

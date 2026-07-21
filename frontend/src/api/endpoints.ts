@@ -45,6 +45,10 @@ export const api = {
     http.del<void>(
       `/api/servers/${encodeURIComponent(name)}/secrets/${encodeURIComponent(key)}`,
     ),
+  regenerateServerSecret: (name: string, key: string) =>
+    http.post<void>(
+      `/api/servers/${encodeURIComponent(name)}/secrets/${encodeURIComponent(key)}/regenerate`,
+    ),
 
   sendRcon: (name: string, command: string) =>
     http.post<RconCommandResponse>(`/api/servers/${encodeURIComponent(name)}/rcon`, { command }),

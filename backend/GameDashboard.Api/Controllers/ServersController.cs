@@ -209,6 +209,23 @@ public sealed class ServersController : ControllerBase
         return NoContent();
     }
 
+    /// <summary>
+    /// Regenerates an app-managed secret (e.g. an RCON password) for this server
+    /// with a fresh strong value and recreates its container. 400 when the key is
+    /// not app-managed on this server.
+    /// </summary>
+    [HttpPost("{name}/secrets/{key}/regenerate")]
+    public async Task<IActionResult> RegenerateServerSecret(string name, string key, CancellationToken ct)
+    {
+        if (!ServerNameValidator.IsValid(name))
+        {
+            return InvalidNameProblem(name);
+        }
+
+        await _orchestrator.RegenerateServerSecretAsync(name, key, ct);
+        return NoContent();
+    }
+
     [HttpPost("{name}/rcon")]
     public async Task<IActionResult> SendRconCommand(
         string name, [FromBody] RconCommandRequest? request, CancellationToken ct)

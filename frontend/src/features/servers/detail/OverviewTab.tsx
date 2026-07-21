@@ -67,20 +67,34 @@ export function OverviewTab({ server }: { server: ServerDetail }) {
             <CardTitle className="text-base">Join</CardTitle>
           </CardHeader>
           <CardContent>
-            {publicAddress ? (
-              <>
-                <CopyableAddress large address={`${publicAddress}:${joinPort.nodePort}`} />
-                <p className="mt-2 text-xs text-muted-foreground">
-                  Friends anywhere join with this address. One-time setup: forward ports{" "}
-                  <span className="font-mono">{forwardRange}</span> (TCP &amp; UDP) to this PC on
-                  your router — that covers every server you deploy, now and later.
-                </p>
-              </>
+            {lanAddress || publicAddress ? (
+              <div className="grid gap-4 sm:grid-cols-2">
+                {lanAddress && (
+                  <div className="space-y-1.5">
+                    <p className="text-xs font-medium">Local</p>
+                    <CopyableAddress large address={`${lanAddress}:${joinPort.nodePort}`} />
+                    <p className="text-xs text-muted-foreground">
+                      Share with players on your network.
+                    </p>
+                  </div>
+                )}
+                {publicAddress && (
+                  <div className="space-y-1.5">
+                    <p className="text-xs font-medium">Public</p>
+                    <CopyableAddress large address={`${publicAddress}:${joinPort.nodePort}`} />
+                    <p className="text-xs text-muted-foreground">
+                      Friends anywhere join with this address. One-time setup: forward ports{" "}
+                      <span className="font-mono">{forwardRange}</span> (TCP &amp; UDP) to this PC on
+                      your router — that covers every server you deploy, now and later.
+                    </p>
+                  </div>
+                )}
+              </div>
             ) : (
               <p className="text-sm text-muted-foreground">
                 {networkInfo
-                  ? "Couldn't determine this network's public IP address. Check your internet connection."
-                  : "Looking up this network's public IP address…"}
+                  ? "Couldn't determine this network's addresses. Check your internet connection."
+                  : "Looking up this network's addresses…"}
               </p>
             )}
           </CardContent>
@@ -148,37 +162,6 @@ export function OverviewTab({ server }: { server: ServerDetail }) {
                   ))}
                 </tbody>
               </table>
-            )}
-            {shareablePorts.length > 0 && lanAddress && (
-              <div className="mt-4 space-y-1.5">
-                <p className="text-xs font-medium">Join address — share with players on your network</p>
-                {shareablePorts.map((port) => (
-                  <div
-                    key={`share-${port.name}-${port.containerPort}`}
-                    className="flex items-center justify-between gap-2"
-                  >
-                    <span className="text-xs text-muted-foreground">{port.name}</span>
-                    <CopyableAddress address={`${lanAddress}:${port.nodePort}`} />
-                  </div>
-                ))}
-              </div>
-            )}
-            {shareablePorts.length > 0 && publicAddress && (
-              <div className="mt-4 space-y-1.5">
-                <p className="text-xs font-medium">
-                  Internet join address — requires the one-time port forward of{" "}
-                  <span className="font-mono">{forwardRange}</span> on your router
-                </p>
-                {shareablePorts.map((port) => (
-                  <div
-                    key={`public-${port.name}-${port.containerPort}`}
-                    className="flex items-center justify-between gap-2"
-                  >
-                    <span className="text-xs text-muted-foreground">{port.name}</span>
-                    <CopyableAddress address={`${publicAddress}:${port.nodePort}`} />
-                  </div>
-                ))}
-              </div>
             )}
             <p className="mt-3 text-xs text-muted-foreground">
               On this PC, connect to <span className="font-mono">localhost:&lt;node port&gt;</span>.

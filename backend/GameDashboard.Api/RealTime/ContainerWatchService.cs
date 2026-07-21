@@ -98,7 +98,8 @@ public sealed class ContainerWatchService : BackgroundService
             var name = container.Names?.FirstOrDefault()?.TrimStart('/') ?? container.ID[..12];
             var ports = PortsOf(container.Labels);
             var ready = await _prober.IsReadyAsync(container.ID, container.State, ports, ct);
-            current[name] = ContainerStatusMapper.Map(container.State, ready);
+            var deployInFlight = _deployTracker.Get(name) is { Failed: false };
+            current[name] = ContainerStatusMapper.Map(container.State, ready, deployInFlight);
         }
 
         foreach (var pending in _deployTracker.All)

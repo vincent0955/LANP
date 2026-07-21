@@ -83,4 +83,13 @@ public interface IServerOrchestrator
     /// (→ 404) when no value is set for that key on this server.
     /// </summary>
     Task DeleteServerSecretAsync(string name, string key, CancellationToken ct);
+
+    /// <summary>
+    /// Replaces an app-managed secret (e.g. an RCON password) with a freshly
+    /// generated strong value and recreates the container so it takes effect.
+    /// Throws <see cref="ArgumentException"/> (→ 400) when the key is not an
+    /// app-managed secret on this server (user-supplied secrets have no value the
+    /// app can mint; set those directly instead).
+    /// </summary>
+    Task RegenerateServerSecretAsync(string name, string key, CancellationToken ct);
 }

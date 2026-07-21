@@ -144,7 +144,18 @@ public class DockerServiceTests
     private static ContainerInspectResponse Cs2Container(string name) =>
         ManagedContainer(name, state: "exited", extraLabels: new Dictionary<string, string>
         {
+            // The image-tag label is what resolves managed-secret handling
+            // (CS2_RCONPW is app-managed); real containers always carry it.
+            [ContainerLabels.ImageTag] = CuratedGameTemplates.Cs2.ImageTag,
             [ContainerLabels.SecretKeys] = JsonSerializer.Serialize(CuratedGameTemplates.Cs2.SecretKeyRefs),
+        });
+
+    /// <summary>A stopped Minecraft container whose only secret is app-managed.</summary>
+    private static ContainerInspectResponse MinecraftContainer(string name) =>
+        ManagedContainer(name, state: "exited", extraLabels: new Dictionary<string, string>
+        {
+            [ContainerLabels.ImageTag] = CuratedGameTemplates.Minecraft.ImageTag,
+            [ContainerLabels.SecretKeys] = JsonSerializer.Serialize(CuratedGameTemplates.Minecraft.SecretKeyRefs),
         });
 
     // --- health ---
@@ -408,6 +419,61 @@ public class DockerServiceTests
         Assert.Equal(new[] { "CS2_RCONPW", "SRCDS_TOKEN" }, secrets.Select(s => s.Key));
         Assert.True(secrets.Single(s => s.Key == "SRCDS_TOKEN").Configured);
         Assert.False(secrets.Single(s => s.Key == "CS2_RCONPW").Configured);
+        // The RCON password is app-managed; the Steam token is user-supplied.
+        Assert.True(secrets.Single(s => s.Key == "CS2_RCONPW").Managed);
+        Assert.False(secrets.Single(s => s.Key == "SRCDS_TOKEN").Managed);
+    }
+
+    [Fact]
+    public async Task ScaleServerAsync_Starts_A_Server_Whose_Only_Secret_Is_App_Managed()
+    {
+        // Minecraft's only secret is the app-managed RCON password: no manual
+        // entry is required, so start generates it and proceeds.
+        var harness = new Harness(engineReachable: true);
+        harness.Containers.Setup(c => c.InspectContainerAsync("my-mc", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(MinecraftContainer("my-mc"));
+
+        await harness.Service.ScaleServerAsync("my-mc", 1, CancellationToken.None);
+
+        // A value was minted and persisted for the managed key...
+        harness.Secrets.Verify(s => s.SetAsync(
+            It.Is<IDictionary<string, string>>(d => d.ContainsKey("my-mc/RCON_PASSWORD")),
+            It.IsAny<CancellationToken>()), Times.Once);
+        // ...and the server actually started.
+        harness.Containers.Verify(c => c.StartContainerAsync(
+            "my-mc", It.IsAny<ContainerStartParameters>(), It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    [Fact]
+    public async Task RegenerateServerSecretAsync_Mints_A_New_Value_And_Recreates()
+    {
+        var harness = new Harness(engineReachable: true);
+        harness.Containers.Setup(c => c.InspectContainerAsync("my-cs2", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(Cs2Container("my-cs2"));
+
+        await harness.Service.RegenerateServerSecretAsync("my-cs2", "CS2_RCONPW", CancellationToken.None);
+
+        harness.Secrets.Verify(s => s.SetAsync(
+            It.Is<IDictionary<string, string>>(d =>
+                d.ContainsKey("my-cs2/CS2_RCONPW") && !string.IsNullOrWhiteSpace(d["my-cs2/CS2_RCONPW"])),
+            It.IsAny<CancellationToken>()), Times.AtLeastOnce);
+        harness.Containers.Verify(c => c.CreateContainerAsync(
+            It.IsAny<CreateContainerParameters>(), It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    [Fact]
+    public async Task RegenerateServerSecretAsync_Rejects_A_User_Supplied_Secret()
+    {
+        // A Steam GSLT has no value the app can mint — regenerate must refuse.
+        var harness = new Harness(engineReachable: true);
+        harness.Containers.Setup(c => c.InspectContainerAsync("my-cs2", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(Cs2Container("my-cs2"));
+
+        await Assert.ThrowsAsync<ArgumentException>(
+            () => harness.Service.RegenerateServerSecretAsync("my-cs2", "SRCDS_TOKEN", CancellationToken.None));
+
+        harness.Containers.Verify(c => c.CreateContainerAsync(
+            It.IsAny<CreateContainerParameters>(), It.IsAny<CancellationToken>()), Times.Never);
     }
 
     [Fact]

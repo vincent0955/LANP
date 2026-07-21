@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "./endpoints";
-import type { DeployServerRequest } from "./types";
+import type { BackupSettings, DeployServerRequest } from "./types";
 
 // Central key factory — the SignalR event bridge patches these same keys, so
 // they must never be constructed ad hoc in components.
@@ -11,9 +11,11 @@ export const queryKeys = {
   server: (name: string) => ["servers", name] as const,
   config: (name: string) => ["servers", name, "config"] as const,
   serverSecrets: (name: string) => ["servers", name, "secrets"] as const,
+  backups: (name: string) => ["servers", name, "backups"] as const,
   games: (search: string) => ["games", search] as const,
   metrics: ["metrics"] as const,
   network: ["network"] as const,
+  backupSettings: ["backups", "settings"] as const,
   runtime: ["runtime"] as const,
   minecraftVersions: (type: string) => ["minecraft", "versions", type] as const,
   minecraftSearch: (params: Record<string, string>) => ["minecraft", "search", params] as const,
@@ -201,6 +203,48 @@ export function useDeleteServerSecret(name: string) {
       queryClient.invalidateQueries({ queryKey: queryKeys.serverSecrets(name) });
       queryClient.invalidateQueries({ queryKey: queryKeys.server(name) });
     },
+  });
+}
+
+export function useBackups(name: string) {
+  return useQuery({ queryKey: queryKeys.backups(name), queryFn: () => api.listBackups(name) });
+}
+
+export function useBackupSettings() {
+  return useQuery({ queryKey: queryKeys.backupSettings, queryFn: api.backupSettings });
+}
+
+export function useUpdateBackupSettings() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (settings: BackupSettings) => api.updateBackupSettings(settings),
+    onSuccess: (updated) => queryClient.setQueryData(queryKeys.backupSettings, updated),
+  });
+}
+
+export function useCreateBackup(name: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: () => api.createBackup(name),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: queryKeys.backups(name) }),
+  });
+}
+
+export function useRestoreBackup(name: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => api.restoreBackup(name, id),
+    // Restore replaces the volume; the server's status is unaffected (it must be
+    // stopped), but refetch its detail in case the UI shows volume-derived info.
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: queryKeys.server(name) }),
+  });
+}
+
+export function useDeleteBackup(name: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => api.deleteBackup(name, id),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: queryKeys.backups(name) }),
   });
 }
 

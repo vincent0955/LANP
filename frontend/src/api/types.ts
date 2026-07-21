@@ -188,6 +188,17 @@ export interface RconCommandResponse {
 }
 
 /**
+ * One saved backup archive of a server's data volume (WS1). `id` is the
+ * archive's timestamp file name, safe to use in a URL path segment.
+ */
+export interface BackupInfo {
+  id: string;
+  serverName: string;
+  createdAt: string;
+  sizeBytes: number;
+}
+
+/**
  * The host machine's shareable addresses — used to render copyable "ip:port" join
  * addresses. lanAddresses are the LAN IPv4s in preference order (empty when no LAN
  * adapter is up). publicAddress is the internet-facing IPv4, only reachable by
@@ -233,5 +244,20 @@ export interface DownloadProgressMessage {
   serverName: string;
   bytesUsed: number;
   capacityBytes: number;
+  timestamp: string;
+}
+
+/** Machine-wide scheduled-backup settings (WS1). */
+export interface BackupSettings {
+  enabled: boolean;
+  intervalMinutes: number;
+  retentionCount: number;
+}
+
+/** A scheduled backup finished for a server (WS1). */
+export interface BackupCompletedMessage {
+  serverName: string;
+  backupId: string;
+  sizeBytes: number;
   timestamp: string;
 }

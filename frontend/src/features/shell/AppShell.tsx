@@ -4,7 +4,6 @@ import { cn } from "@/lib/utils";
 
 const navItems = [
   { to: "/", label: "Home", end: true },
-  { to: "/quick-start", label: "Quick Start", end: false },
   { to: "/library", label: "Library", end: false },
   { to: "/setup", label: "Setup", end: false },
   { to: "/settings", label: "Settings", end: false },

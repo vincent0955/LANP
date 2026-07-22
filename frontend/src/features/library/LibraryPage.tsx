@@ -1,13 +1,10 @@
 import { useDeferredValue, useState } from "react";
-import { Search } from "lucide-react";
-import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
-import { Card, CardContent, CardFooter, CardHeader } from "@/components/ui/card";
+import { Play, Search } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { useGames } from "@/api/queries";
-import { formatBytes } from "@/lib/format";
+import { gameArt, gameInitials } from "@/lib/gameArt";
 import { DeployDialog } from "./DeployDialog";
 import type { GameTemplate } from "@/api/types";
 
@@ -60,33 +57,36 @@ export function LibraryPage() {
       {games.isSuccess && games.data.length > 0 && (
         <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
           {games.data.map((game) => (
-            <Card key={game.imageTag} className="flex flex-col">
-              <CardHeader className="flex-row items-start justify-between space-y-0">
-                <div className="min-w-0">
-                  <p className="truncate font-semibold" title={game.displayName}>
-                    {game.displayName}
-                  </p>
-                  <p className="truncate text-xs text-muted-foreground" title={game.imageTag}>
-                    {game.imageTag}
-                  </p>
+            <div
+              key={game.imageTag}
+              className="group overflow-hidden rounded-lg border border-[#e3eaf1] bg-card transition-all hover:-translate-y-[3px] hover:border-[#b9dff5] hover:shadow-[0_8px_22px_rgba(16,49,74,0.10)]"
+            >
+              {/* Gradient box art + initials — no image assets. */}
+              <div
+                className="flex h-[150px] items-center justify-center"
+                style={{ background: gameArt(game.displayName) }}
+              >
+                <span className="text-5xl font-extrabold tracking-[-0.02em] text-white/90">
+                  {gameInitials(game.displayName)}
+                </span>
+              </div>
+              <div className="px-4 pb-[17px] pt-[15px]">
+                <div
+                  className="flex min-h-[38px] items-center text-[15.5px] font-bold leading-tight"
+                  title={game.displayName}
+                >
+                  {game.displayName}
                 </div>
-                {game.steamAppId !== null && <Badge variant="secondary">Steam</Badge>}
-              </CardHeader>
-              <CardContent className="flex-1 text-sm text-muted-foreground">
-                <p>
-                  {game.defaultResources.memoryLimit} memory · {game.defaultResources.cpuLimit} CPU
-                  · {formatBytes(game.defaultStorageBytes)} storage
-                </p>
-                <p className="mt-1 text-xs">
-                  Ports: {game.defaultPorts.map((p) => `${p.containerPort}/${p.protocol}`).join(", ")}
-                </p>
-              </CardContent>
-              <CardFooter>
-                <Button className="w-full" onClick={() => setDeploying(game)}>
-                  Deploy
-                </Button>
-              </CardFooter>
-            </Card>
+                <button
+                  type="button"
+                  onClick={() => setDeploying(game)}
+                  className="mt-2.5 flex w-full items-center justify-center gap-2 rounded-md bg-primary py-2.5 text-[12.5px] font-bold uppercase tracking-[0.07em] text-primary-foreground transition hover:bg-[#85d7ff]"
+                >
+                  <Play className="size-3.5" />
+                  Play
+                </button>
+              </div>
+            </div>
           ))}
         </div>
       )}

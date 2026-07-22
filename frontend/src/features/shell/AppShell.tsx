@@ -1,5 +1,4 @@
 import { NavLink, Outlet } from "react-router-dom";
-import { useHealth } from "@/api/queries";
 import { cn } from "@/lib/utils";
 
 const navItems = [
@@ -9,11 +8,8 @@ const navItems = [
   { to: "/settings", label: "Settings", end: false },
 ];
 
-/** Sidebar per the design handoff: 232px, uppercase nav, health footer. */
+/** Sidebar per the design handoff: 232px, uppercase nav. */
 export function AppShell() {
-  const health = useHealth();
-  const healthy = health.data?.clusterReachable === true;
-
   return (
     <div className="flex h-screen overflow-hidden bg-background text-foreground">
       <aside className="flex w-[232px] shrink-0 flex-col border-r bg-sidebar px-4 py-6 text-sidebar-foreground">
@@ -46,15 +42,6 @@ export function AppShell() {
             </NavLink>
           ))}
         </nav>
-        <div className="mt-auto flex items-center gap-[9px] px-3.5 py-2.5 text-[12.5px] text-[#8795a3]">
-          <span
-            className={cn(
-              "inline-block size-2 rounded-full",
-              healthy ? "bg-[#2fb877]" : "bg-[#8795a3]",
-            )}
-          />
-          {healthy ? "All systems go" : "Waiting for backend…"}
-        </div>
       </aside>
       <main className="flex-1 overflow-y-auto">
         <Outlet />

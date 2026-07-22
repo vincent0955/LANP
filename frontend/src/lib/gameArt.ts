@@ -43,3 +43,23 @@ export function gameArt(name: string): string {
   for (let i = 0; i < name.length; i++) hash = (hash * 31 + name.charCodeAt(i)) >>> 0;
   return ARTS[hash % ARTS.length];
 }
+
+/** Rough uptime for a card sub-line, e.g. "up 3 hours". Null if not sensible. */
+export function formatUptime(iso: string): string | null {
+  const start = new Date(iso).getTime();
+  if (!Number.isFinite(start)) return null;
+  const secs = Math.floor((Date.now() - start) / 1000);
+  if (secs < 0) return null;
+  const units: [size: number, label: string][] = [
+    [86400, "day"],
+    [3600, "hour"],
+    [60, "minute"],
+  ];
+  for (const [size, label] of units) {
+    if (secs >= size) {
+      const n = Math.floor(secs / size);
+      return `up ${n} ${label}${n === 1 ? "" : "s"}`;
+    }
+  }
+  return "up just now";
+}

@@ -16,10 +16,7 @@ import {
   setLogHubInvoker,
 } from "./logStore";
 import { useProgressStore } from "./progressStore";
-import { recordActivity } from "./activityStore";
-import { formatBytes } from "@/lib/format";
 import type {
-  ServerStatus,
   AutoScaleActionMessage,
   BackupCompletedMessage,
   DownloadProgressMessage,
@@ -148,8 +145,6 @@ function registerHandlers(conn: HubConnection, queryClient: QueryClient) {
   conn.on("LogLine", (message: LogLineMessage) => appendLogLine(message));
 
   conn.on("ServerStatusChanged", (message: ServerStatusChangedMessage) => {
-    recordActivity(message.serverName, statusActivityMessage(message.status), message.timestamp);
-
     const list = queryClient.getQueryData<ServerSummary[]>(queryKeys.servers);
     const known = list?.some((s) => s.name === message.serverName);
 
@@ -176,35 +171,13 @@ function registerHandlers(conn: HubConnection, queryClient: QueryClient) {
   });
 
   conn.on("AutoScaleAction", (message: AutoScaleActionMessage) => {
-    recordActivity(message.serverName, message.reason, message.timestamp);
     toast.info(`Auto-scale: ${message.action} ${message.serverName}`, {
       description: message.reason,
     });
   });
 
   conn.on("BackupCompleted", (message: BackupCompletedMessage) => {
-    recordActivity(
-      message.serverName,
-      `Backup saved (${formatBytes(message.sizeBytes)})`,
-      message.timestamp,
-    );
     // A scheduled backup landed — refresh that server's list if it's on screen.
     void queryClient.invalidateQueries({ queryKey: queryKeys.backups(message.serverName) });
   });
-}
-
-/** Friendly copy for the Overview "Recent activity" feed. */
-function statusActivityMessage(status: ServerStatus): string {
-  switch (status) {
-    case "Running":
-      return "Server is up";
-    case "Pending":
-      return "Server starting…";
-    case "Stopped":
-      return "Server stopped";
-    case "Error":
-      return "Server hit an error";
-    default:
-      return `Status changed to ${status}`;
-  }
 }

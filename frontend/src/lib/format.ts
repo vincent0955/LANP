@@ -25,22 +25,6 @@ export function formatTime(iso: string): string {
   return Number.isNaN(date.getTime()) ? iso : date.toLocaleTimeString();
 }
 
-/** "5:58 PM" — minute-level stamps for activity feeds. */
-export function formatShortTime(iso: string): string {
-  const date = new Date(iso);
-  return Number.isNaN(date.getTime())
-    ? iso
-    : date.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
-}
-
-/** "Jul 18, 2026" */
-export function formatDate(iso: string): string {
-  const date = new Date(iso);
-  return Number.isNaN(date.getTime())
-    ? iso
-    : date.toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" });
-}
-
 /** "Today, 9:49 PM" / "Yesterday, 3:49 PM" / "Jul 18, 9:49 PM" */
 export function formatFriendlyDateTime(iso: string): string {
   const date = new Date(iso);
@@ -53,5 +37,6 @@ export function formatFriendlyDateTime(iso: string): string {
       : dayDiff === 1
         ? "Yesterday"
         : date.toLocaleDateString(undefined, { month: "short", day: "numeric" });
-  return `${day}, ${formatShortTime(iso)}`;
+  const time = date.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
+  return `${day}, ${time}`;
 }

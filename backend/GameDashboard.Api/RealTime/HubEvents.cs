@@ -15,6 +15,7 @@ public static class HubEvents
     public const string MetricsUpdate = "MetricsUpdate";
     public const string AutoScaleAction = "AutoScaleAction";
     public const string DownloadProgress = "DownloadProgress";
+    public const string BackupCompleted = "BackupCompleted";
 }
 
 public record LogLineMessage(string ServerName, string Line, DateTimeOffset Timestamp);
@@ -33,3 +34,11 @@ public record AutoScaleActionMessage(string ServerName, string Action, string Re
 /// </summary>
 public record DownloadProgressMessage(
     string ServerName, long BytesUsed, long CapacityBytes, DateTimeOffset Timestamp);
+
+/// <summary>
+/// A scheduled backup finished for a server (WS1). Pushed to the "events" group
+/// by <see cref="Services.BackupSchedulerService"/> so the UI can toast/refresh
+/// its backup list without polling.
+/// </summary>
+public record BackupCompletedMessage(
+    string ServerName, string BackupId, long SizeBytes, DateTimeOffset Timestamp);

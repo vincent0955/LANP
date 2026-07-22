@@ -95,9 +95,24 @@ builder.Services.AddHostedService<MetricsPushService>();
 // --- RCON (Phase 6) ---
 builder.Services.AddSingleton<IRconService, RconService>();
 
+// --- World backups (WS1): game-agnostic volume snapshots + scheduled auto-backups ---
+builder.Services.AddSingleton<IBackupService, BackupService>();
+builder.Services.AddSingleton<IBackupSettingsStore, BackupSettingsStore>();
+builder.Services.AddHostedService<BackupSchedulerService>();
+
 // --- Join addresses (public IP lookup, cached) ---
 builder.Services.AddHttpClient();
 builder.Services.AddSingleton<IPublicIpService, PublicIpService>();
+
+// --- Network diagnostics (WS2): CGNAT detection, reachability probe, forwarding guide ---
+builder.Services.AddHttpClient(nameof(CheckHostPortChecker), client =>
+{
+    client.Timeout = TimeSpan.FromSeconds(10);
+    client.DefaultRequestHeaders.UserAgent.ParseAdd(
+        "game-dashboard/1.0 (github.com/vincent0955/source-server-cluster)");
+});
+builder.Services.AddSingleton<IExternalPortChecker, CheckHostPortChecker>();
+builder.Services.AddScoped<INetworkDiagnosticsService, NetworkDiagnosticsService>();
 
 // --- Minecraft deploy metadata (versions + Modrinth search, all keyless) ---
 builder.Services.AddMemoryCache();

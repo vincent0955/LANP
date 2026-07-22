@@ -1,0 +1,73 @@
+import { Globe, TriangleAlert } from "lucide-react";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { useNetworkInfo } from "@/api/queries";
+
+/**
+ * Machine-wide network summary on the Setup screen (WS2): LAN/public address,
+ * the one-time forward range, and a CGNAT hint. Per-server reachability testing
+ * and exact forwarding instructions live on each server's Overview tab.
+ */
+export function NetworkCard() {
+  const network = useNetworkInfo();
+  if (!network.isSuccess) return null;
+
+  const { lanAddresses, publicAddress, nodePortRangeStart, nodePortRangeEnd } = network.data;
+  const cgnat = isLikelyCgnat(publicAddress);
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2">
+          <Globe className="size-5" /> Network
+        </CardTitle>
+        <CardDescription>How players reach your servers.</CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        <div className="divide-y text-sm">
+          <Row label="Local address" value={lanAddresses[0] ?? "—"} />
+          <Row label="Public address" value={publicAddress ?? "unknown"} />
+          <Row label="Forward once" value={`${nodePortRangeStart}–${nodePortRangeEnd} (TCP & UDP)`} />
+        </div>
+
+        {cgnat ? (
+          <Alert variant="destructive">
+            <TriangleAlert className="size-4" />
+            <AlertTitle>Carrier-Grade NAT likely</AlertTitle>
+            <AlertDescription>
+              Your public address looks like a shared/CGNAT address, so router port forwarding won't
+              make servers reachable. Use a tunnel (e.g. Tailscale) or ask your ISP for a public IP.
+            </AlertDescription>
+          </Alert>
+        ) : (
+          <p className="text-xs text-muted-foreground">
+            Forward the port range above to this PC once on your router, then use each server's
+            Overview tab to generate exact instructions and test connectivity.
+          </p>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+function Row({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="flex justify-between gap-4 py-1.5">
+      <span className="text-muted-foreground">{label}</span>
+      <span className="text-right font-mono text-xs font-medium">{value}</span>
+    </div>
+  );
+}
+
+/** Client-side hint only; the server-side probe is authoritative (ConnectivityPanel). */
+function isLikelyCgnat(ip: string | null): boolean {
+  if (!ip) return false;
+  const parts = ip.split(".").map(Number);
+  if (parts.length !== 4 || parts.some((n) => Number.isNaN(n))) return false;
+  const [a, b] = parts;
+  if (a === 100 && b >= 64 && b <= 127) return true; // 100.64.0.0/10 CGNAT
+  if (a === 10) return true;
+  if (a === 172 && b >= 16 && b <= 31) return true;
+  if (a === 192 && b === 168) return true;
+  return false;
+}

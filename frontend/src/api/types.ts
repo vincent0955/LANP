@@ -188,6 +188,17 @@ export interface RconCommandResponse {
 }
 
 /**
+ * One saved backup archive of a server's data volume (WS1). `id` is the
+ * archive's timestamp file name, safe to use in a URL path segment.
+ */
+export interface BackupInfo {
+  id: string;
+  serverName: string;
+  createdAt: string;
+  sizeBytes: number;
+}
+
+/**
  * The host machine's shareable addresses — used to render copyable "ip:port" join
  * addresses. lanAddresses are the LAN IPv4s in preference order (empty when no LAN
  * adapter is up). publicAddress is the internet-facing IPv4, only reachable by
@@ -200,6 +211,45 @@ export interface NetworkInfo {
   publicAddress: string | null;
   nodePortRangeStart: number;
   nodePortRangeEnd: number;
+}
+
+export type ReachabilityState = "Open" | "Closed" | "Unverified";
+
+/** Reachability of one published port (WS2). */
+export interface PortReachability {
+  name: string;
+  protocol: string;
+  port: number;
+  /** Reliable local signal: the port is published and answering on this machine. */
+  locallyListening: boolean;
+  /** Best-effort outside-in result. */
+  external: ReachabilityState;
+  detail: string | null;
+}
+
+/** A server's connectivity diagnosis (WS2). */
+export interface ServerReachability {
+  serverName: string;
+  publicAddress: string | null;
+  cgnatDetected: boolean;
+  cgnatDetail: string | null;
+  ports: PortReachability[];
+}
+
+export interface ForwardingRule {
+  name: string;
+  protocol: string;
+  port: number;
+}
+
+/** Exact per-server forwarding instructions (WS2). */
+export interface ForwardingGuide {
+  serverName: string;
+  lanAddresses: string[];
+  publicAddress: string | null;
+  rules: ForwardingRule[];
+  firewallCommands: string[];
+  note: string | null;
 }
 
 // SignalR hub payloads (GameDashboard.Api/RealTime/HubEvents.cs). Every hub
@@ -233,5 +283,20 @@ export interface DownloadProgressMessage {
   serverName: string;
   bytesUsed: number;
   capacityBytes: number;
+  timestamp: string;
+}
+
+/** Machine-wide scheduled-backup settings (WS1). */
+export interface BackupSettings {
+  enabled: boolean;
+  intervalMinutes: number;
+  retentionCount: number;
+}
+
+/** A scheduled backup finished for a server (WS1). */
+export interface BackupCompletedMessage {
+  serverName: string;
+  backupId: string;
+  sizeBytes: number;
   timestamp: string;
 }

@@ -1,7 +1,11 @@
 import { http } from "./http";
+import { useSettings } from "@/lib/settings";
 import type {
+  BackupInfo,
+  BackupSettings,
   ClusterHealth,
   DeployServerRequest,
+  ForwardingGuide,
   GameTemplate,
   MetricsSnapshot,
   MinecraftVersionsResponse,
@@ -10,6 +14,7 @@ import type {
   RconCommandResponse,
   RuntimeStatus,
   ServerDetail,
+  ServerReachability,
   ServerSecretInfo,
   ServerSummary,
   SetupStatus,
@@ -53,6 +58,37 @@ export const api = {
   sendRcon: (name: string, command: string) =>
     http.post<RconCommandResponse>(`/api/servers/${encodeURIComponent(name)}/rcon`, { command }),
 
+  listBackups: (name: string) =>
+    http.get<BackupInfo[]>(`/api/servers/${encodeURIComponent(name)}/backups`),
+  createBackup: (name: string) =>
+    http.post<BackupInfo>(`/api/servers/${encodeURIComponent(name)}/backups`, {}),
+  restoreBackup: (name: string, id: string) =>
+    http.post<void>(
+      `/api/servers/${encodeURIComponent(name)}/backups/${encodeURIComponent(id)}/restore`,
+      {},
+    ),
+  deleteBackup: (name: string, id: string) =>
+    http.del<void>(`/api/servers/${encodeURIComponent(name)}/backups/${encodeURIComponent(id)}`),
+  // Binary download: fetched as a blob (with the auth token when set) and saved
+  // via a temporary object URL, rather than routed through http() which parses JSON.
+  downloadBackup: async (name: string, id: string) => {
+    const { baseUrl, apiToken } = useSettings.getState();
+    const res = await fetch(
+      `${baseUrl}/api/servers/${encodeURIComponent(name)}/backups/${encodeURIComponent(id)}/download`,
+      { headers: apiToken ? { "X-Api-Token": apiToken } : undefined },
+    );
+    if (!res.ok) throw new Error(`Download failed (${res.status}).`);
+    const blob = await res.blob();
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = `${name}-${id}.tar.gz`;
+    document.body.appendChild(anchor);
+    anchor.click();
+    anchor.remove();
+    URL.revokeObjectURL(url);
+  },
+
   listGames: (search?: string) =>
     http.get<GameTemplate[]>(`/api/games${search ? `?search=${encodeURIComponent(search)}` : ""}`),
 
@@ -82,4 +118,14 @@ export const api = {
   metrics: () => http.get<MetricsSnapshot>("/api/metrics"),
 
   networkInfo: () => http.get<NetworkInfo>("/api/network"),
+  reachability: (name: string) =>
+    http.get<ServerReachability>(`/api/network/reachability/${encodeURIComponent(name)}`),
+  forwardingGuide: (name: string) =>
+    http.get<ForwardingGuide>(
+      `/api/network/servers/${encodeURIComponent(name)}/forwarding-guide`,
+    ),
+
+  backupSettings: () => http.get<BackupSettings>("/api/backups/settings"),
+  updateBackupSettings: (settings: BackupSettings) =>
+    http.put<BackupSettings>("/api/backups/settings", settings),
 };

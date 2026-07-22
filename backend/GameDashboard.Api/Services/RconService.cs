@@ -4,6 +4,7 @@ using System.Text.RegularExpressions;
 using CoreRCON;
 using Docker.DotNet;
 using GameDashboard.Api.Exceptions;
+using GameDashboard.Api.GameTemplates;
 using GameDashboard.Api.Models;
 using GameDashboard.Api.Services.Docker;
 
@@ -114,7 +115,8 @@ public sealed partial class RconService : IRconService
                 return null;
             }
 
-            var (engine, queryCommand, secretKey) = ClassifyEngine(container.Config?.Image ?? "");
+            var (engine, queryCommand) = ClassifyEngine(container.Config?.Image ?? "");
+            var secretKey = ResolveRconStoreKey(labels, engine);
 
             // RCON passwords are per-server secrets, stored under the server's scope.
             var password = await _secretsStore.GetValueAsync(
@@ -161,15 +163,43 @@ public sealed partial class RconService : IRconService
     /// container image. Curated templates only for now (catalog games without
     /// RCON support simply resolve to null upstream).
     /// </summary>
-    private static (Engine Engine, string QueryCommand, string SecretKey) ClassifyEngine(string image)
+    private static (Engine Engine, string QueryCommand) ClassifyEngine(string image)
     {
         if (image.Contains("minecraft-server", StringComparison.OrdinalIgnoreCase))
         {
-            return (Engine.Minecraft, "list", "RCON_PASSWORD");
+            return (Engine.Minecraft, "list");
         }
 
-        // CS2, Insurgency, and other Source-engine LinuxGSM images.
-        return (Engine.Source, "status", "CS2_RCONPW");
+        // CS2, Insurgency, and other Source-engine images.
+        return (Engine.Source, "status");
+    }
+
+    /// <summary>
+    /// The secrets-store key holding this server's RCON password. Derived from the
+    /// server's template (via the image-tag label): the app-managed secret key
+    /// naming an RCON password is the source of truth, so any template that wires
+    /// one is picked up automatically — no per-game constant here. Falls back to
+    /// the engine's conventional key for templates that don't declare one, where
+    /// the lookup simply misses and RCON degrades soft (e.g. the LinuxGSM images,
+    /// whose RCON password lives in a config file the app doesn't yet own — see
+    /// the WS3 follow-up in docs/pre-ui-functional-gaps-followups.md).
+    /// </summary>
+    private static string ResolveRconStoreKey(IDictionary<string, string> labels, Engine engine)
+    {
+        if (labels.TryGetValue(ContainerLabels.ImageTag, out var tag) &&
+            CuratedGameTemplates.ResolveByTag(tag) is { } template)
+        {
+            var managedRconKey = template.ManagedSecretKeysOrEmpty
+                .FirstOrDefault(k => k.Contains("RCON", StringComparison.OrdinalIgnoreCase));
+            if (managedRconKey is not null)
+            {
+                return managedRconKey;
+            }
+        }
+
+        // Conventional keys for the app-managed RCON passwords of the two engines
+        // that have them today (CS2, Minecraft); other images miss and fail soft.
+        return engine == Engine.Minecraft ? "RCON_PASSWORD" : "CS2_RCONPW";
     }
 
     private async Task<RCON?> ConnectAsync(RconConnection connection, CancellationToken ct)

@@ -18,6 +18,7 @@ import {
 import { useProgressStore } from "./progressStore";
 import type {
   AutoScaleActionMessage,
+  BackupCompletedMessage,
   DownloadProgressMessage,
   LogLineMessage,
   MetricsSnapshot,
@@ -173,5 +174,10 @@ function registerHandlers(conn: HubConnection, queryClient: QueryClient) {
     toast.info(`Auto-scale: ${message.action} ${message.serverName}`, {
       description: message.reason,
     });
+  });
+
+  conn.on("BackupCompleted", (message: BackupCompletedMessage) => {
+    // A scheduled backup landed — refresh that server's list if it's on screen.
+    void queryClient.invalidateQueries({ queryKey: queryKeys.backups(message.serverName) });
   });
 }

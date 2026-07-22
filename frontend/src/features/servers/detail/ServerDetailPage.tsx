@@ -14,6 +14,7 @@ import { ConfigTab } from "./ConfigTab";
 import { LogsTab } from "./LogsTab";
 import { RconTab } from "./RconTab";
 import { ServerSecretsTab } from "./ServerSecretsTab";
+import { BackupsTab } from "./BackupsTab";
 
 export function ServerDetailPage() {
   const { name = "" } = useParams();
@@ -96,6 +97,7 @@ export function ServerDetailPage() {
           {hasSecrets && <TabsTrigger value="secrets">Secrets</TabsTrigger>}
           <TabsTrigger value="logs">Logs</TabsTrigger>
           <TabsTrigger value="rcon">RCON</TabsTrigger>
+          <TabsTrigger value="backups">Backups</TabsTrigger>
         </TabsList>
         <TabsContent value="overview" className="mt-4">
           <OverviewTab server={data} />
@@ -113,6 +115,9 @@ export function ServerDetailPage() {
         </TabsContent>
         <TabsContent value="rcon" className="mt-4">
           <RconTab server={data} />
+        </TabsContent>
+        <TabsContent value="backups" className="mt-4">
+          <BackupsTab server={data} />
         </TabsContent>
       </Tabs>
 

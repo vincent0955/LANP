@@ -102,76 +102,40 @@ export function OverviewTab({ server }: { server: ServerDetail }) {
         </Card>
       )}
 
-      <div className="grid gap-4 lg:grid-cols-2">
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-base">Server</CardTitle>
-          </CardHeader>
-          <CardContent className="divide-y">
-            <Row label="Game" value={server.game} />
-            <Row label="Image" value={<span className="font-mono text-xs">{server.image}</span>} />
-            <Row label="Replicas" value={server.replicas} />
-            <Row label="Created" value={formatDateTime(server.createdAt)} />
-            {server.players && (
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">Server</CardTitle>
+        </CardHeader>
+        <CardContent className="divide-y">
+          <Row label="Game" value={server.game} />
+          <Row label="Image" value={<span className="font-mono text-xs">{server.image}</span>} />
+          <Row label="Replicas" value={server.replicas} />
+          <Row label="Created" value={formatDateTime(server.createdAt)} />
+          {server.players && (
+            <Row
+              label="Players"
+              value={`${server.players.currentPlayers} / ${server.players.maxPlayers}${
+                server.players.currentMap ? ` · ${server.players.currentMap}` : ""
+              }`}
+            />
+          )}
+          {server.resources && (
+            <>
               <Row
-                label="Players"
-                value={`${server.players.currentPlayers} / ${server.players.maxPlayers}${
-                  server.players.currentMap ? ` · ${server.players.currentMap}` : ""
-                }`}
+                label="CPU (request / limit)"
+                value={`${server.resources.cpuRequest} / ${server.resources.cpuLimit}`}
               />
-            )}
-            {server.resources && (
-              <>
-                <Row
-                  label="CPU (request / limit)"
-                  value={`${server.resources.cpuRequest} / ${server.resources.cpuLimit}`}
-                />
-                <Row
-                  label="Memory (request / limit)"
-                  value={`${server.resources.memoryRequest} / ${server.resources.memoryLimit}`}
-                />
-              </>
-            )}
-          </CardContent>
-        </Card>
+              <Row
+                label="Memory (request / limit)"
+                value={`${server.resources.memoryRequest} / ${server.resources.memoryLimit}`}
+              />
+            </>
+          )}
+        </CardContent>
+      </Card>
 
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-base">Connection ports</CardTitle>
-          </CardHeader>
-          <CardContent>
-            {server.ports.length === 0 ? (
-              <p className="text-sm text-muted-foreground">No ports exposed.</p>
-            ) : (
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="border-b text-left text-xs text-muted-foreground">
-                    <th className="py-1.5 font-medium">Name</th>
-                    <th className="py-1.5 font-medium">Container</th>
-                    <th className="py-1.5 font-medium">Node port</th>
-                    <th className="py-1.5 font-medium">Protocol</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {server.ports.map((port) => (
-                    <tr key={`${port.name}-${port.containerPort}`} className="border-b last:border-0">
-                      <td className="py-1.5">{port.name}</td>
-                      <td className="py-1.5 font-mono text-xs">{port.containerPort}</td>
-                      <td className="py-1.5 font-mono text-xs font-semibold">{port.nodePort}</td>
-                      <td className="py-1.5">{port.protocol}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            )}
-            <p className="mt-3 text-xs text-muted-foreground">
-              On this PC, connect to <span className="font-mono">localhost:&lt;node port&gt;</span>.
-            </p>
-          </CardContent>
-        </Card>
-      </div>
-
-      {joinPort && <ConnectivityPanel server={server} />}
+      {/* Ports + "let friends join" merged into one Connections card. */}
+      <ConnectivityPanel server={server} />
     </div>
   );
 }

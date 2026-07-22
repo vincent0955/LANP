@@ -1,112 +1,137 @@
-import { Copy } from "lucide-react";
-import { toast } from "sonner";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { useNetworkInfo } from "@/api/queries";
+import { CopyButton } from "@/components/CopyButton";
+import { useConnectivity } from "@/lib/connectivity";
 import { formatDateTime } from "@/lib/format";
 import type { ServerDetail } from "@/api/types";
-import { ConnectivityPanel } from "./ConnectivityPanel";
+import { ConnectionsCard } from "./ConnectionsCard";
+import type { DetailTab } from "./ServerDetailPage";
 
-/** A join address rendered as a click-to-copy chip. */
-function CopyableAddress({ address, large = false }: { address: string; large?: boolean }) {
-  const copy = async () => {
-    try {
-      await navigator.clipboard.writeText(address);
-      toast.success("Copied", { description: address });
-    } catch {
-      toast.error("Couldn't access the clipboard", { description: address });
-    }
-  };
-  return (
-    <button
-      type="button"
-      onClick={copy}
-      title="Copy to clipboard"
-      className={
-        large
-          ? "inline-flex items-center gap-2 rounded-md border px-3 py-2 font-mono text-lg font-semibold hover:bg-accent"
-          : "inline-flex items-center gap-1.5 rounded-md border px-2 py-1 font-mono text-xs hover:bg-accent"
-      }
-    >
-      {address}
-      <Copy className={large ? "size-4 text-muted-foreground" : "size-3 text-muted-foreground"} />
-    </button>
-  );
+interface Props {
+  server: ServerDetail;
+  onOpenHelp: () => void;
+  onGoTab: (tab: DetailTab) => void;
+  onDelete: () => void;
 }
 
 function Row({ label, value }: { label: string; value: React.ReactNode }) {
   return (
-    <div className="flex justify-between gap-4 py-1.5 text-sm">
+    <div className="flex items-center justify-between gap-4 border-b border-[#eef3f7] py-3 text-sm">
       <span className="text-muted-foreground">{label}</span>
-      <span className="text-right font-medium">{value}</span>
+      <span className="truncate text-right font-semibold">{value}</span>
     </div>
   );
 }
 
-export function OverviewTab({ server }: { server: ServerDetail }) {
-  // Best-effort: when the backend can't report a LAN address, the card falls
-  // back to the plain localhost hint.
+export function OverviewTab({ server, onOpenHelp, onGoTab, onDelete }: Props) {
   const networkInfo = useNetworkInfo().data;
-  const lanAddress = networkInfo?.lanAddresses[0];
+  const verified = useConnectivity((s) => s.verified);
+
+  // RCON is an admin channel, not a join address; templates list the primary
+  // game port first, so the first non-rcon port is the one players join through.
+  const joinPort = server.ports.find((p) => !p.name.toLowerCase().includes("rcon"));
+  const lanAddress = networkInfo?.lanAddresses[0] ?? "localhost";
   const publicAddress = networkInfo?.publicAddress;
-  // One-time router setup: the backend allocates every host port from this small
-  // window, so forwarding it once covers all current and future servers.
-  const forwardRange = networkInfo
-    ? `${networkInfo.nodePortRangeStart}–${networkInfo.nodePortRangeEnd}`
-    : null;
-  // RCON is an admin channel, not a join address — the app's RCON tab already
-  // covers it locally, and sharing it would hand out server control.
-  const shareablePorts = server.ports.filter((p) => !p.name.toLowerCase().includes("rcon"));
-  // Templates list the primary game port first, so the first shareable port is
-  // the one players actually join through.
-  const joinPort = shareablePorts[0];
+  const localJoin = joinPort ? `${lanAddress}:${joinPort.nodePort}` : null;
+  const publicJoin = joinPort && publicAddress ? `${publicAddress}:${joinPort.nodePort}` : null;
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-5">
+      {/* Invite friends */}
       {joinPort && (
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-base">Join</CardTitle>
-          </CardHeader>
-          <CardContent>
-            {lanAddress || publicAddress ? (
-              <div className="grid gap-4 sm:grid-cols-2">
-                {lanAddress && (
-                  <div className="space-y-1.5">
-                    <p className="text-xs font-medium">Local</p>
-                    <CopyableAddress large address={`${lanAddress}:${joinPort.nodePort}`} />
-                    <p className="text-xs text-muted-foreground">
-                      Share with players on your network.
-                    </p>
-                  </div>
-                )}
-                {publicAddress && (
-                  <div className="space-y-1.5">
-                    <p className="text-xs font-medium">Public</p>
-                    <CopyableAddress large address={`${publicAddress}:${joinPort.nodePort}`} />
-                    <p className="text-xs text-muted-foreground">
-                      Friends anywhere join with this address. One-time setup: forward ports{" "}
-                      <span className="font-mono">{forwardRange}</span> (TCP &amp; UDP) to this PC on
-                      your router — that covers every server you deploy, now and later.
-                    </p>
-                  </div>
+        <div className="rounded-[10px] border bg-card px-[30px] py-7">
+          <div className="flex flex-wrap items-baseline justify-between gap-4">
+            <div>
+              <div className="text-lg font-bold">Invite friends</div>
+              <div className="mt-[3px] text-[13.5px] text-muted-foreground">
+                Send them the address that matches where they are.
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={onOpenHelp}
+              className="cursor-pointer text-[13px] font-semibold text-[#2596d1] transition-colors hover:text-foreground"
+            >
+              Which one do I share? →
+            </button>
+          </div>
+
+          <div className="mt-5 grid gap-4 sm:grid-cols-2">
+            {/* On your network */}
+            <div className="rounded-lg border bg-[#fbfdfe] px-5 py-[18px]">
+              <div className="flex items-center gap-2">
+                <span className="text-xs font-bold uppercase tracking-[0.08em] text-muted-foreground">
+                  On your network
+                </span>
+                <span className="rounded-full bg-[#e4f7ee] px-[9px] py-0.5 text-[11.5px] font-semibold text-[#1d7a51]">
+                  No setup
+                </span>
+              </div>
+              <div className="mt-2.5 flex items-center gap-2.5">
+                <span className="break-all font-mono text-base font-semibold">{localJoin}</span>
+                {localJoin && <CopyButton text={localJoin} />}
+              </div>
+              <div className="mt-2 text-[12.5px] text-[#8795a3]">
+                For people in the same house or on the same Wi‑Fi.
+              </div>
+            </div>
+
+            {/* Over the internet */}
+            <div className="rounded-lg border bg-[#fbfdfe] px-5 py-[18px]">
+              <div className="flex items-center gap-2">
+                <span className="text-xs font-bold uppercase tracking-[0.08em] text-muted-foreground">
+                  Over the internet
+                </span>
+                {verified ? (
+                  <span className="rounded-full bg-[#e4f7ee] px-[9px] py-0.5 text-[11.5px] font-semibold text-[#1d7a51]">
+                    Verified ✓
+                  </span>
+                ) : (
+                  <span className="rounded-full bg-[#fff3d6] px-[9px] py-0.5 text-[11.5px] font-semibold text-[#8a6d1f]">
+                    Setup needed
+                  </span>
                 )}
               </div>
-            ) : (
-              <p className="text-sm text-muted-foreground">
-                {networkInfo
-                  ? "Couldn't determine this network's addresses. Check your internet connection."
-                  : "Looking up this network's addresses…"}
-              </p>
-            )}
-          </CardContent>
-        </Card>
+              <div className="mt-2.5 flex items-center gap-2.5">
+                {publicJoin ? (
+                  <>
+                    <span className="break-all font-mono text-base font-semibold">{publicJoin}</span>
+                    <CopyButton text={publicJoin} />
+                  </>
+                ) : (
+                  <span className="text-sm text-[#8795a3]">
+                    {networkInfo ? "Couldn't determine your public address." : "Looking up…"}
+                  </span>
+                )}
+              </div>
+              <div className="mt-2 text-[12.5px] text-[#8795a3]">
+                For friends anywhere. One-time router setup — click the ? for a guided walkthrough.
+              </div>
+            </div>
+          </div>
+
+          {!verified && (
+            <div className="mt-4 flex flex-wrap items-center gap-3 rounded-lg border border-[#f3e2bd] bg-[#fff8ec] px-[18px] py-[13px]">
+              <span className="text-[15px]">⚠️</span>
+              <span className="text-[13.5px] text-[#7a5c1e]">
+                Internet play isn't verified yet — friends outside your network may not be able to
+                join.
+              </span>
+              <button
+                type="button"
+                onClick={onOpenHelp}
+                className="ml-auto cursor-pointer whitespace-nowrap rounded-[6px] border border-[#e5d5ad] bg-white px-4 py-[7px] text-[13px] font-bold text-foreground transition-colors hover:border-primary"
+              >
+                Run setup check
+              </button>
+            </div>
+          )}
+        </div>
       )}
 
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base">Server</CardTitle>
-        </CardHeader>
-        <CardContent className="divide-y">
+      {/* This server + Connections */}
+      <div className="grid gap-5 lg:grid-cols-[1.4fr_1fr]">
+        <div className="self-start rounded-[10px] border bg-card px-[30px] py-[26px]">
+          <div className="mb-1.5 text-base font-bold">This server</div>
           <Row label="Game" value={server.game} />
           <Row label="Image" value={<span className="font-mono text-xs">{server.image}</span>} />
           <Row label="Replicas" value={server.replicas} />
@@ -131,11 +156,40 @@ export function OverviewTab({ server }: { server: ServerDetail }) {
               />
             </>
           )}
-        </CardContent>
-      </Card>
+          <div className="mt-4 flex gap-[18px] text-[13px] font-semibold">
+            <button
+              type="button"
+              onClick={() => onGoTab("config")}
+              className="cursor-pointer text-[#2596d1] transition-colors hover:text-foreground"
+            >
+              Edit settings
+            </button>
+            <button
+              type="button"
+              onClick={() => onGoTab("logs")}
+              className="cursor-pointer text-[#2596d1] transition-colors hover:text-foreground"
+            >
+              View logs
+            </button>
+            <button
+              type="button"
+              onClick={() => onGoTab("backups")}
+              className="cursor-pointer text-[#2596d1] transition-colors hover:text-foreground"
+            >
+              Backups
+            </button>
+            <button
+              type="button"
+              onClick={onDelete}
+              className="ml-auto cursor-pointer text-[#b0433f] transition-colors hover:text-[#7c2320]"
+            >
+              Delete
+            </button>
+          </div>
+        </div>
 
-      {/* Ports + "let friends join" merged into one Connections card. */}
-      <ConnectivityPanel server={server} />
+        <ConnectionsCard server={server} />
+      </div>
     </div>
   );
 }

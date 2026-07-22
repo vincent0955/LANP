@@ -59,7 +59,7 @@ function Row({ label, value }: { label: string; value: string }) {
   );
 }
 
-/** Client-side hint only; the server-side probe is authoritative (ConnectivityPanel). */
+/** Client-side hint only; the server-side probe is authoritative (ConnectionWizard). */
 function isLikelyCgnat(ip: string | null): boolean {
   if (!ip) return false;
   const parts = ip.split(".").map(Number);

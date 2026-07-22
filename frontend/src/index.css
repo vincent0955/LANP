@@ -1,13 +1,20 @@
 @import "tailwindcss";
 @import "tw-animate-css";
 @import "shadcn/tailwind.css";
-@import "@fontsource-variable/geist";
+@import "@fontsource/outfit/400.css";
+@import "@fontsource/outfit/500.css";
+@import "@fontsource/outfit/600.css";
+@import "@fontsource/outfit/700.css";
+@import "@fontsource/outfit/800.css";
+@import "@fontsource/jetbrains-mono/400.css";
+@import "@fontsource/jetbrains-mono/600.css";
 
 @custom-variant dark (&:is(.dark *));
 
 @theme inline {
     --font-heading: var(--font-sans);
-    --font-sans: 'Geist Variable', sans-serif;
+    --font-sans: 'Outfit', sans-serif;
+    --font-mono: 'JetBrains Mono', ui-monospace, monospace;
     --color-sidebar-ring: var(--sidebar-ring);
     --color-sidebar-border: var(--sidebar-border);
     --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
@@ -48,39 +55,40 @@
     --radius-4xl: calc(var(--radius) * 2.6);
 }
 
+/* Design-handoff palette (docs/design_handoff_server_page/README.md → Design Tokens). */
 :root {
-    --background: oklch(1 0 0);
-    --foreground: oklch(0.145 0 0);
-    --card: oklch(1 0 0);
-    --card-foreground: oklch(0.145 0 0);
-    --popover: oklch(1 0 0);
-    --popover-foreground: oklch(0.145 0 0);
-    --primary: oklch(0.205 0 0);
-    --primary-foreground: oklch(0.985 0 0);
-    --secondary: oklch(0.97 0 0);
-    --secondary-foreground: oklch(0.205 0 0);
-    --muted: oklch(0.97 0 0);
-    --muted-foreground: oklch(0.556 0 0);
-    --accent: oklch(0.97 0 0);
-    --accent-foreground: oklch(0.205 0 0);
-    --destructive: oklch(0.577 0.245 27.325);
-    --border: oklch(0.922 0 0);
-    --input: oklch(0.922 0 0);
-    --ring: oklch(0.708 0 0);
-    --chart-1: oklch(0.87 0 0);
-    --chart-2: oklch(0.556 0 0);
-    --chart-3: oklch(0.439 0 0);
-    --chart-4: oklch(0.371 0 0);
-    --chart-5: oklch(0.269 0 0);
+    --background: #f4f7fa;
+    --foreground: #1c2530;
+    --card: #ffffff;
+    --card-foreground: #1c2530;
+    --popover: #ffffff;
+    --popover-foreground: #1c2530;
+    --primary: #5cc8ff;
+    --primary-foreground: #10314a;
+    --secondary: #eef3f7;
+    --secondary-foreground: #45596b;
+    --muted: #eef3f7;
+    --muted-foreground: #64748b;
+    --accent: #f0faff;
+    --accent-foreground: #10314a;
+    --destructive: #b0433f;
+    --border: #e3eaf1;
+    --input: #dbe4ec;
+    --ring: #5cc8ff;
+    --chart-1: #5cc8ff;
+    --chart-2: #2596d1;
+    --chart-3: #1d7a51;
+    --chart-4: #8a6d1f;
+    --chart-5: #b0433f;
     --radius: 0.625rem;
-    --sidebar: oklch(0.985 0 0);
-    --sidebar-foreground: oklch(0.145 0 0);
-    --sidebar-primary: oklch(0.205 0 0);
-    --sidebar-primary-foreground: oklch(0.985 0 0);
-    --sidebar-accent: oklch(0.97 0 0);
-    --sidebar-accent-foreground: oklch(0.205 0 0);
-    --sidebar-border: oklch(0.922 0 0);
-    --sidebar-ring: oklch(0.708 0 0);
+    --sidebar: #fbfcfe;
+    --sidebar-foreground: #1c2530;
+    --sidebar-primary: #5cc8ff;
+    --sidebar-primary-foreground: #10314a;
+    --sidebar-accent: #5cc8ff;
+    --sidebar-accent-foreground: #10314a;
+    --sidebar-border: #e3eaf1;
+    --sidebar-ring: #5cc8ff;
 }
 
 .dark {

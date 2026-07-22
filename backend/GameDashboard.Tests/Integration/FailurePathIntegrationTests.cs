@@ -93,14 +93,14 @@ public class FailurePathIntegrationTests
     }
 
     [Fact]
-    public async Task GamesEndpoint_Returns_All_TwentyOne_Games_Without_Search()
+    public async Task GamesEndpoint_Returns_All_Twenty_Games_Without_Search()
     {
         var response = await _client.GetAsync("/api/games");
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
 
         var games = await response.Content.ReadFromJsonAsync<List<GameTemplate>>(IntegrationTestFixture.JsonOptions);
         Assert.NotNull(games);
-        Assert.Equal(21, games!.Count);
+        Assert.Equal(20, games!.Count);
     }
 
     [Fact]

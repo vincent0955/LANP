@@ -8,11 +8,11 @@ public class GameCatalogServiceTests
     private readonly GameCatalogService _service = new();
 
     [Fact]
-    public void GetGames_Returns_All_TwentyOne_Games_When_No_Search()
+    public void GetGames_Returns_All_Twenty_Games_When_No_Search()
     {
         var games = _service.GetGames(null);
 
-        Assert.Equal(21, games.Count);
+        Assert.Equal(20, games.Count);
     }
 
     [Fact]
@@ -20,7 +20,7 @@ public class GameCatalogServiceTests
     {
         var games = _service.GetGames(string.Empty);
 
-        Assert.Equal(21, games.Count);
+        Assert.Equal(20, games.Count);
     }
 
     [Fact]
@@ -28,7 +28,7 @@ public class GameCatalogServiceTests
     {
         var games = _service.GetGames("   ");
 
-        Assert.Equal(21, games.Count);
+        Assert.Equal(20, games.Count);
     }
 
     [Fact]

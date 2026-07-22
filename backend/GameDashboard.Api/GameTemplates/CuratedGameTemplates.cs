@@ -142,7 +142,7 @@ public static class CuratedGameTemplates
             Cs2, Insurgency, Minecraft,
             TeamFortress2, Rust, Valheim, ProjectZomboid, ArkSurvivalEvolved,
             Terraria, SevenDaysToDie, Left4Dead2, GarrysMod, Palworld, VRising, Satisfactory,
-            MinecraftBedrock, Hytale, SonsOfTheForest, Factorio, TerrariaTModLoader, ConanExiles
+            MinecraftBedrock, Hytale, SonsOfTheForest, Factorio, ConanExiles
         };
 
         return templates.ToDictionary(t => t.ImageTag, t => t);
@@ -457,6 +457,10 @@ public static class CuratedGameTemplates
     // random RCON password to <volume>/config/rconpw on first boot — the app
     // can't read it, so the RCON tab fails soft for Factorio (see tasks.md
     // known-issue 5: app-managed RCON passwords for every template).
+    // Verified live 2026-07-21: GENERATE_NEW_SAVE=true REQUIRES SAVE_NAME (the
+    // image exits 1 with "you must specify $SAVE_NAME" otherwise), so a fixed
+    // save name is part of the default config — the save is generated on first
+    // boot and loaded thereafter.
     public static readonly GameTemplate Factorio = new(
         DisplayName: "Factorio",
         ImageTag: "factoriotools/factorio:stable",
@@ -472,33 +476,19 @@ public static class CuratedGameTemplates
         DefaultConfig: new Dictionary<string, string>
         {
             ["GENERATE_NEW_SAVE"] = "true",
-            ["LOAD_LATEST_SAVE"] = "true"
+            ["LOAD_LATEST_SAVE"] = "true",
+            ["SAVE_NAME"] = "world"
         },
         SecretKeyRefs: new Dictionary<string, string>());
 
-    // Same maintainer/repo as the vanilla Terraria template (the standalone
-    // tmodloader1.4-docker image was merged into terraria-docker in 2025). To
-    // load mods, drop a modpack folder into ModPacks/ inside the data volume and
-    // set a MODPACK config override with its name; without one it runs plain tML.
-    public static readonly GameTemplate TerrariaTModLoader = new(
-        DisplayName: "Terraria (tModLoader)",
-        ImageTag: "passivelemon/terraria-docker:tmodloader-latest",
-        SteamAppId: null,
-        DataMountPath: "/opt/terraria/config",
-        DefaultStorageBytes: 4L * 1024 * 1024 * 1024,
-        DefaultPorts: new[]
-        {
-            new TemplatePort("game", "TCP", 7777)
-        },
-        DefaultResources: new ResourceSpec("1000m", "2000m", "2Gi", "4Gi"),
-        DefaultConfig: new Dictionary<string, string>
-        {
-            ["WORLDNAME"] = "world",
-            ["AUTOCREATE"] = "2",
-            ["MAXPLAYERS"] = "8",
-            ["PASSWORD"] = ""
-        },
-        SecretKeyRefs: new Dictionary<string, string>());
+    // NOTE: a Terraria tModLoader template was removed 2026-07-21 after live
+    // verification — passivelemon/terraria-docker:tmodloader-latest exits
+    // immediately ("Modpack name was not provided. Exiting...") unless a MODPACK
+    // is set AND its mod files are pre-placed in the volume's Modpacks/ folder.
+    // There is no zero-config one-click path (the deploy flow can't stage mod
+    // files before first boot), so it can't be a curated template. Revisit only
+    // if a modpack can be resolved+downloaded automatically (à la Modrinth for
+    // Minecraft).
 
     // Windows/UE server under Wine, installed via anonymous steamcmd. The image's
     // compose file splits /conanexiles and /conanexiles/ConanSandbox/Saved into

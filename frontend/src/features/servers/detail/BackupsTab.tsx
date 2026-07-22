@@ -1,13 +1,13 @@
 import { useState } from "react";
-import { Download, RotateCcw, Save, Trash2, TriangleAlert } from "lucide-react";
+import { Download, RotateCcw, Trash2 } from "lucide-react";
 import { toast } from "sonner";
-import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { api } from "@/api/endpoints";
 import { useBackups, useCreateBackup, useDeleteBackup, useRestoreBackup } from "@/api/queries";
-import { formatBytes, formatDateTime } from "@/lib/format";
+import { formatBytes, formatFriendlyDateTime } from "@/lib/format";
 import { toastApiError } from "@/lib/errors";
+import { iconBtn, outlineBtn, primaryBtn } from "./ui";
 import type { ServerDetail } from "@/api/types";
 
 /**
@@ -82,27 +82,28 @@ export function BackupsTab({ server }: { server: ServerDetail }) {
   };
 
   return (
-    <div className="space-y-4">
-      <div className="flex items-center justify-between gap-3">
+    <div>
+      <div className="mb-[18px] flex items-center justify-between gap-5">
         <p className="text-sm text-muted-foreground">
           Snapshots of this server's world data, saved to this machine. Safe to keep even if the
           runtime is reset.
         </p>
-        <Button onClick={backUpNow} disabled={create.isPending}>
-          <Save className="size-4" />
+        <button
+          type="button"
+          className={`${primaryBtn} whitespace-nowrap px-[22px]`}
+          onClick={backUpNow}
+          disabled={create.isPending}
+        >
           {create.isPending ? "Backing up…" : "Back up now"}
-        </Button>
+        </button>
       </div>
 
       {running && (
-        <Alert>
-          <TriangleAlert className="size-4" />
-          <AlertTitle>Restoring is disabled while the server is running</AlertTitle>
-          <AlertDescription>
-            Stop the server first to restore a backup. Backing up now still works, but a snapshot of
-            a live world is best-effort — stop the server for a guaranteed-consistent copy.
-          </AlertDescription>
-        </Alert>
+        <div className="mb-[18px] rounded-lg border border-[#f3e2bd] bg-[#fff8ec] px-[18px] py-[13px] text-[13.5px] text-[#7a5c1e]">
+          <span className="font-bold">Restoring is disabled while the server is running.</span>{" "}
+          Stop the server first to restore a backup. Backing up now still works, but a snapshot of
+          a live world is best-effort — stop the server for a guaranteed-consistent copy.
+        </div>
       )}
 
       {backups.isPending ? (
@@ -113,67 +114,73 @@ export function BackupsTab({ server }: { server: ServerDetail }) {
           <AlertDescription>{backups.error.message}</AlertDescription>
         </Alert>
       ) : backups.data.length === 0 ? (
-        <div className="rounded-md border border-dashed p-8 text-center text-sm text-muted-foreground">
+        <div className="rounded-[10px] border border-dashed p-8 text-center text-sm text-muted-foreground">
           No backups yet. Use “Back up now” to save this server's world.
         </div>
       ) : (
-        <div className="divide-y rounded-md border">
+        <div className="flex flex-col gap-3">
           {backups.data.map((backup) => (
-            <div key={backup.id} className="flex flex-wrap items-center justify-between gap-3 p-3">
+            <div
+              key={backup.id}
+              className="flex flex-wrap items-center gap-4 rounded-[10px] border bg-card px-6 py-[18px]"
+            >
               <div className="min-w-0">
-                <div className="font-medium">{formatDateTime(backup.createdAt)}</div>
-                <div className="text-xs text-muted-foreground">{formatBytes(backup.sizeBytes)}</div>
+                <div className="text-[14.5px] font-bold">
+                  {formatFriendlyDateTime(backup.createdAt)}
+                </div>
+                <div className="mt-0.5 text-[12.5px] text-[#8795a3]">
+                  {formatBytes(backup.sizeBytes)}
+                </div>
               </div>
-              <div className="flex items-center gap-1">
+              <div className="ml-auto flex items-center gap-2">
                 {pendingRestore === backup.id ? (
-                  <Button
-                    variant="secondary"
-                    size="sm"
+                  <button
+                    type="button"
+                    className="cursor-pointer rounded-[6px] bg-secondary px-4 py-2 text-[13px] font-bold text-secondary-foreground transition hover:brightness-105 disabled:cursor-default disabled:opacity-50"
                     disabled={restore.isPending || running}
                     onClick={() => restoreBackup(backup.id)}
                   >
                     Confirm restore
-                  </Button>
+                  </button>
                 ) : (
-                  <Button
-                    variant="ghost"
-                    size="sm"
+                  <button
+                    type="button"
+                    className={outlineBtn}
                     disabled={running}
                     title={running ? "Stop the server to restore" : "Replace the world with this backup"}
                     onClick={() => restoreBackup(backup.id)}
                   >
-                    <RotateCcw className="size-4" />
+                    <RotateCcw className="size-3.5" />
                     Restore
-                  </Button>
+                  </button>
                 )}
-                <Button
-                  variant="ghost"
-                  size="icon"
+                <button
+                  type="button"
+                  className={iconBtn}
                   title="Download this backup"
                   disabled={downloading === backup.id}
-                  onClick={() => download(backup.id)}
+                  onClick={() => void download(backup.id)}
                 >
                   <Download className="size-4" />
-                </Button>
+                </button>
                 {pendingDelete === backup.id ? (
-                  <Button
-                    variant="destructive"
-                    size="sm"
+                  <button
+                    type="button"
+                    className="cursor-pointer rounded-[6px] bg-[#b0433f] px-4 py-2 text-[13px] font-bold text-white transition hover:brightness-105 disabled:cursor-default disabled:opacity-50"
                     disabled={remove.isPending}
                     onClick={() => deleteBackup(backup.id)}
                   >
                     Confirm delete
-                  </Button>
+                  </button>
                 ) : (
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className="text-destructive hover:text-destructive"
+                  <button
+                    type="button"
+                    className={`${iconBtn} hover:bg-[#fbf1f0] hover:text-[#b0433f]`}
                     title="Delete this backup"
                     onClick={() => deleteBackup(backup.id)}
                   >
                     <Trash2 className="size-4" />
-                  </Button>
+                  </button>
                 )}
               </div>
             </div>

@@ -1,10 +1,6 @@
 import { useState } from "react";
-import { Eye, EyeOff, RefreshCw, Trash2, TriangleAlert } from "lucide-react";
+import { Eye, EyeOff, RefreshCw, Trash2 } from "lucide-react";
 import { toast } from "sonner";
-import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { api } from "@/api/endpoints";
@@ -15,6 +11,7 @@ import {
   useSetServerSecrets,
 } from "@/api/queries";
 import { toastApiError } from "@/lib/errors";
+import { primaryBtn } from "./ui";
 
 // Friendly copy for the curated store keys a game template can reference
 // (CuratedGameTemplates.cs → secretKeyRefs). Unknown keys fall back to the raw
@@ -165,97 +162,100 @@ export function ServerSecretsTab({ serverName }: { serverName: string }) {
     });
   };
 
+  const smallIconBtn =
+    "flex size-7 cursor-pointer items-center justify-center rounded-[6px] text-[#8795a3] transition-colors hover:bg-secondary hover:text-foreground disabled:cursor-default disabled:opacity-50";
+
   return (
-    <div className="space-y-4">
+    <div>
       {missing.length > 0 && (
-        <Alert>
-          <TriangleAlert className="size-4" />
-          <AlertTitle>This server needs {missing.length === 1 ? "a secret" : "secrets"} before it can start</AlertTitle>
-          <AlertDescription>
-            Set <span className="font-mono">{missing.join(", ")}</span> below. The server won't start until{" "}
-            {missing.length === 1 ? "it's" : "they're"} set.
-          </AlertDescription>
-        </Alert>
+        <div className="mb-4 rounded-lg border border-[#f3e2bd] bg-[#fff8ec] px-[18px] py-[13px] text-[13.5px] text-[#7a5c1e]">
+          <span className="font-bold">
+            This server needs {missing.length === 1 ? "a secret" : "secrets"} before it can start.
+          </span>{" "}
+          Set <span className="font-mono text-xs">{missing.join(", ")}</span> below — the server
+          won't start until {missing.length === 1 ? "it's" : "they're"} set.
+        </div>
       )}
 
-      <div className="space-y-4 rounded-md border p-4">
+      <div className="space-y-7 rounded-[10px] border bg-card px-[30px] py-[26px]">
         {secrets.data.map(({ key, managed }) => {
           const meta = SECRET_META[key];
           const untouched = !(key in values);
           const showsMask = untouched && configured(key);
           return (
-            <div key={key} className="space-y-1.5">
-              <div className="flex items-center gap-2">
-                <Label htmlFor={`secret-${key}`}>
-                  {meta ? meta.label : key} <span className="font-mono text-xs text-muted-foreground">({key})</span>
-                </Label>
+            <div key={key}>
+              <div className="flex flex-wrap items-center gap-2.5">
+                <span className="text-[15.5px] font-bold">{meta ? meta.label : key}</span>
+                <span className="font-mono text-[11px] text-[#9aa7b4]">{key}</span>
                 {managed ? (
-                  <Badge variant="outline">Managed</Badge>
+                  <span className="rounded-full bg-secondary px-2.5 py-0.5 text-[11.5px] font-semibold text-secondary-foreground">
+                    Managed
+                  </span>
                 ) : (
-                  configured(key) && <Badge variant="secondary">Set</Badge>
+                  configured(key) && (
+                    <span className="rounded-full bg-[#e4f7ee] px-2.5 py-0.5 text-[11.5px] font-semibold text-[#1d7a51]">
+                      Set
+                    </span>
+                  )
                 )}
                 {configured(key) && (
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className="size-6"
+                  <button
+                    type="button"
+                    className={`${smallIconBtn} ml-1`}
                     title={visible[key] ? "Hide value" : "Show current value"}
                     disabled={revealing === key}
-                    onClick={() => toggleReveal(key)}
+                    onClick={() => void toggleReveal(key)}
                   >
                     {visible[key] ? <EyeOff className="size-4" /> : <Eye className="size-4" />}
-                  </Button>
+                  </button>
                 )}
                 {managed &&
                   (pendingRegen === key ? (
-                    <Button
-                      variant="secondary"
-                      size="sm"
-                      className="h-6"
+                    <button
+                      type="button"
+                      className="cursor-pointer rounded-[6px] bg-secondary px-3 py-1 text-xs font-bold text-secondary-foreground transition hover:brightness-105"
                       disabled={regenerateSecret.isPending}
                       onClick={() => regenerateKey(key)}
                     >
                       Confirm regenerate
-                    </Button>
+                    </button>
                   ) : (
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      className="size-6"
+                    <button
+                      type="button"
+                      className={smallIconBtn}
                       title="Generate a new value"
                       onClick={() => regenerateKey(key)}
                     >
                       <RefreshCw className="size-4" />
-                    </Button>
+                    </button>
                   ))}
-                {!managed && configured(key) &&
+                {!managed &&
+                  configured(key) &&
                   (pendingDelete === key ? (
-                    <Button
-                      variant="destructive"
-                      size="sm"
-                      className="h-6"
+                    <button
+                      type="button"
+                      className="cursor-pointer rounded-[6px] bg-[#b0433f] px-3 py-1 text-xs font-bold text-white transition hover:brightness-105"
                       disabled={deleteSecret.isPending}
                       onClick={() => removeKey(key)}
                     >
                       Confirm clear
-                    </Button>
+                    </button>
                   ) : (
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      className="size-6"
+                    <button
+                      type="button"
+                      className={`${smallIconBtn} hover:bg-[#fbf1f0] hover:text-[#b0433f]`}
                       title="Clear this secret"
                       onClick={() => removeKey(key)}
                     >
                       <Trash2 className="size-4" />
-                    </Button>
+                    </button>
                   ))}
               </div>
-              <Input
+              <input
                 id={`secret-${key}`}
                 type={visible[key] ? "text" : "password"}
-                className={visible[key] ? "font-mono" : undefined}
-                placeholder={managed ? "Auto-generated — type to override" : undefined}
+                className={`mt-3 w-full rounded-[6px] border border-input bg-[#fbfdfe] px-4 py-[11px] text-sm text-foreground outline-none transition-shadow placeholder:text-[#9aa7b4] focus:border-primary focus:shadow-[0_0_0_3px_rgba(92,200,255,0.25)] ${visible[key] ? "font-mono" : ""}`}
+                placeholder={configured(key) ? "••••••••  (keep current)" : undefined}
                 value={showsMask ? MASK : (values[key] ?? "")}
                 onFocus={() => {
                   // Clear the dots so typing starts a fresh draft instead of
@@ -273,21 +273,21 @@ export function ServerSecretsTab({ serverName }: { serverName: string }) {
                 }}
                 onChange={(e) => setValues((v) => ({ ...v, [key]: e.target.value }))}
               />
-              {meta && <p className="text-xs text-muted-foreground">{meta.hint}</p>}
+              {meta && <p className="mt-2.5 text-[13px] text-[#8795a3]">{meta.hint}</p>}
             </div>
           );
         })}
 
-        <Button onClick={save} disabled={setSecrets.isPending}>
+        <button type="button" className={primaryBtn} onClick={save} disabled={setSecrets.isPending}>
           {setSecrets.isPending ? "Saving…" : "Save secrets"}
-        </Button>
+        </button>
       </div>
 
-      <p className="text-xs text-muted-foreground">
-        Stored encrypted on this machine, never in plain text, and scoped to this server. Fields marked{" "}
-        <span className="font-medium">Managed</span> are generated automatically — reveal, regenerate, or type your own
-        to override. Fields showing dots already have a value. Saving recreates the container, so restart the server if
-        it's running.
+      <p className="mt-3.5 max-w-[780px] text-[13px] leading-[1.6] text-[#8795a3]">
+        Stored encrypted on this machine, never in plain text, and scoped to this server. Fields
+        marked <b>Managed</b> are generated automatically — reveal, regenerate, or type your own to
+        override. Fields showing dots already have a value. Saving restarts the server if it's
+        running.
       </p>
     </div>
   );

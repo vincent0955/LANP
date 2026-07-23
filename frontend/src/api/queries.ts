@@ -166,13 +166,18 @@ export function useRuntimeStatus() {
     queryKey: queryKeys.runtime,
     queryFn: api.runtimeStatus,
     refetchInterval: (query) => {
-      const phase = query.state.data?.phase;
+      const data = query.state.data;
+      const phase = data?.phase;
       const installing =
         phase === "InstallingWsl" ||
         phase === "DownloadingDistro" ||
         phase === "ImportingDistro" ||
         phase === "StartingEngine";
-      return installing ? 2_000 : false;
+      // Also poll while an already-imported runtime is booting (auto-start
+      // leaves the phase at Idle, so key off engine reachability instead) so
+      // the startup splash and the Setup screen refresh once it comes up.
+      const booting = data !== undefined && data.distroImported && !data.engineReachable;
+      return installing || booting ? 2_000 : false;
     },
   });
 }

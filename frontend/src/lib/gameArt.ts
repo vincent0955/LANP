@@ -36,12 +36,13 @@ const logo = (name: string): GameImages => ({
   logo: true,
 });
 
-// Minecraft (Java + Bedrock) isn't on Steam. Banner is Mojang's official
-// "Java & Bedrock Edition" horizontal key art (served by Fandom's image CDN);
-// the icon stays the clean grass-block logo. Same art for both editions.
+// Minecraft (Java + Bedrock) isn't on Steam. Banner is Mojang's official key art,
+// bundled locally (frontend/public/games/minecraft.jpg) rather than hotlinked so
+// it stays crisp — the wiki CDN re-encodes to a heavily-compressed WebP that bands
+// badly on Minecraft's flat sky/grass. The icon stays the clean grass-block logo.
+// Same art for both editions.
 const minecraft = (): GameImages => ({
-  banner:
-    "https://static.wikia.nocookie.net/minecraft_gamepedia/images/3/35/Minecraft_Java_%26_Bedrock_Edition_for_PC_horizontal_key_art.png",
+  banner: "/games/minecraft.jpg",
   icon: `${ICON_CDN}/minecraft.webp`,
   logo: true,
 });
@@ -60,7 +61,13 @@ const GAME_IMAGES: Record<string, GameImages> = {
   "gameservermanagers/gameserver:sdtd": steam(251570),
   "gameservermanagers/gameserver:l4d2": steam(550),
   "gameservermanagers/gameserver:gmod": steam(4000),
-  "gameservermanagers/gameserver:pw": steam(1623730),
+  // Palworld's header.jpg has a dated "Major Update" marketing overlay baked in;
+  // use the text-free library hero art for the banner (icon stays the box art).
+  "gameservermanagers/gameserver:pw": {
+    banner: `${STEAM_CDN}/1623730/library_hero.jpg`,
+    icon: `${STEAM_CDN}/1623730/library_600x900.jpg`,
+    logo: false,
+  },
   "trueosiris/vrising:latest": steam(1604030),
   "gameservermanagers/gameserver:sf": steam(526870),
   "jammsen/sons-of-the-forest-dedicated-server:latest": steam(1326470),

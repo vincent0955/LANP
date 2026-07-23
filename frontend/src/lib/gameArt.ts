@@ -1,5 +1,100 @@
-// Gradient "box art" tiles from the design handoff: no image assets — each game
-// gets a deterministic gradient plus its initials rendered on top.
+// Real cover art + logos for the catalog, with a gradient "box art" fallback from
+// the design handoff (deterministic gradient + initials) for anything unmapped or
+// when an image fails to load. All image sources are zero-setup (no API keys):
+// Steam's public CDN for games on Steam, and the curated dashboard-icons logo set
+// for the few that aren't. See gameImages() below.
+
+/** Cover art (banner) + square art (icon) for one game. */
+export interface GameImages {
+  /** Wide cover art for banner slots (rendered object-cover). Null → use icon/gradient. */
+  banner: string | null;
+  /** Square-ish art for the icon slot (and as a banner badge when banner is null). */
+  icon: string | null;
+  /** True when `icon` is a transparent logo (render contained on a gradient) rather
+   *  than photographic box art (render cover-cropped). */
+  logo: boolean;
+}
+
+const STEAM_CDN = "https://cdn.cloudflare.steamstatic.com/steam/apps";
+const ICON_CDN = "https://cdn.jsdelivr.net/gh/homarr-labs/dashboard-icons/webp";
+
+// Steam art keyed by the STORE appid — note this differs from the dedicated-server
+// SteamAppId a template deploys with (e.g. CS2 store 730 vs. no server appid, TF2
+// store 440 vs. server 232250). header.jpg is the wide banner; library_600x900.jpg
+// is the portrait box art we crop square for the icon.
+const steam = (storeAppId: number): GameImages => ({
+  banner: `${STEAM_CDN}/${storeAppId}/header.jpg`,
+  icon: `${STEAM_CDN}/${storeAppId}/library_600x900.jpg`,
+  logo: false,
+});
+
+// Logo-only art for non-Steam games: no wide banner, so the icon logo doubles as a
+// centered badge on the gradient in banner slots.
+const logo = (name: string): GameImages => ({
+  banner: null,
+  icon: `${ICON_CDN}/${name}.webp`,
+  logo: true,
+});
+
+// Minecraft (Java + Bedrock) isn't on Steam. Banner is Mojang's official key art,
+// bundled locally (frontend/public/games/minecraft.jpg) rather than hotlinked so
+// it stays crisp — the wiki CDN re-encodes to a heavily-compressed WebP that bands
+// badly on Minecraft's flat sky/grass. The icon stays the clean grass-block logo.
+// Same art for both editions.
+const minecraft = (): GameImages => ({
+  banner: "/games/minecraft.jpg",
+  icon: `${ICON_CDN}/minecraft.webp`,
+  logo: true,
+});
+
+// Keyed by the catalog image tag (see backend CuratedGameTemplates). Games absent
+// here fall back to the gradient + initials tile.
+const GAME_IMAGES: Record<string, GameImages> = {
+  "joedwards32/cs2:latest": steam(730),
+  "gameservermanagers/gameserver:ins": steam(222880),
+  "gameservermanagers/gameserver:tf2": steam(440),
+  "gameservermanagers/gameserver:rust": steam(252490),
+  "gameservermanagers/gameserver:vh": steam(892970),
+  "gameservermanagers/gameserver:pz": steam(108600),
+  "gameservermanagers/gameserver:ark": steam(346110),
+  "passivelemon/terraria-docker:latest": steam(105600),
+  "gameservermanagers/gameserver:sdtd": steam(251570),
+  "gameservermanagers/gameserver:l4d2": steam(550),
+  "gameservermanagers/gameserver:gmod": steam(4000),
+  // Palworld's header.jpg has a dated "Major Update" marketing overlay baked in;
+  // use the text-free library hero art for the banner (icon stays the box art).
+  "gameservermanagers/gameserver:pw": {
+    banner: `${STEAM_CDN}/1623730/library_hero.jpg`,
+    icon: `${STEAM_CDN}/1623730/library_600x900.jpg`,
+    logo: false,
+  },
+  "trueosiris/vrising:latest": steam(1604030),
+  "gameservermanagers/gameserver:sf": steam(526870),
+  "jammsen/sons-of-the-forest-dedicated-server:latest": steam(1326470),
+  "factoriotools/factorio:stable": steam(427520),
+  "ghcr.io/balnaimi/conan-exiles-server:latest": steam(440900),
+  // Not on Steam — curated art.
+  "itzg/minecraft-server:latest": minecraft(),
+  "itzg/minecraft-bedrock-server:latest": minecraft(),
+  "indifferentbroccoli/hytale-server-docker:latest": logo("hytale"),
+};
+
+const NO_IMAGES: GameImages = { banner: null, icon: null, logo: false };
+
+/**
+ * Art for a game, resolved from its container image tag. Handles Minecraft's
+ * per-Java-version variant tags (e.g. `itzg/minecraft-server:java21`), which a
+ * deployed server runs instead of the catalog `:latest` tag.
+ */
+export function gameImages(imageTag: string): GameImages {
+  const exact = GAME_IMAGES[imageTag];
+  if (exact) return exact;
+  if (imageTag.startsWith("itzg/minecraft-bedrock-server"))
+    return GAME_IMAGES["itzg/minecraft-bedrock-server:latest"];
+  if (imageTag.startsWith("itzg/minecraft-server"))
+    return GAME_IMAGES["itzg/minecraft-server:latest"];
+  return NO_IMAGES;
+}
 
 const ARTS = [
   "linear-gradient(135deg, #2b6cb0, #4fd1c5)",

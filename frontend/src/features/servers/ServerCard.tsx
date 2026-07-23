@@ -1,7 +1,8 @@
 import { Link } from "react-router-dom";
 import { Play, Square, X } from "lucide-react";
 import { useMetrics, useScaleServer } from "@/api/queries";
-import { gameArt, gameInitials, formatUptime } from "@/lib/gameArt";
+import { formatUptime } from "@/lib/gameArt";
+import { GameArt } from "@/components/GameArt";
 import { formatBytes, formatMillicores } from "@/lib/format";
 import { toastApiError } from "@/lib/errors";
 import { DeployActivity } from "./DeployActivity";
@@ -48,16 +49,13 @@ export function ServerCard({ server, onDelete }: Props) {
 
   return (
     <div className="group overflow-hidden rounded-lg border border-[#e3eaf1] bg-card transition-all hover:-translate-y-[3px] hover:border-[#b9dff5] hover:shadow-[0_8px_22px_rgba(16,49,74,0.10)]">
-      {/* Art header — gradient cover, initials, status badge. Clickable to detail. */}
+      {/* Art header — real cover art (gradient fallback) + status badge. Clickable. */}
       <Link
         to={detailPath}
-        className="relative flex h-[130px] items-center justify-center"
-        style={{ background: gameArt(server.game || server.name) }}
+        className="relative flex h-[130px] items-center justify-center overflow-hidden"
       >
-        <span className="text-[44px] font-extrabold tracking-[-0.02em] text-white/90">
-          {gameInitials(server.game || server.name)}
-        </span>
-        <span className="absolute right-3 top-3 flex items-center gap-1.5 rounded-md bg-[rgba(10,16,24,0.72)] px-[11px] py-1 text-xs font-semibold text-white">
+        <GameArt imageTag={server.image} name={server.game || server.name} variant="banner" />
+        <span className="absolute right-3 top-3 z-10 flex items-center gap-1.5 rounded-md bg-[rgba(10,16,24,0.72)] px-[11px] py-1 text-xs font-semibold text-white">
           <span
             className="inline-block size-1.5 rounded-full"
             style={{ background: statusDot[server.status] }}

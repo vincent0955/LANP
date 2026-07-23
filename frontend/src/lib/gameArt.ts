@@ -36,6 +36,16 @@ const logo = (name: string): GameImages => ({
   logo: true,
 });
 
+// Minecraft (Java + Bedrock) isn't on Steam. Banner is Mojang's official
+// "Java & Bedrock Edition" horizontal key art (served by Fandom's image CDN);
+// the icon stays the clean grass-block logo. Same art for both editions.
+const minecraft = (): GameImages => ({
+  banner:
+    "https://static.wikia.nocookie.net/minecraft_gamepedia/images/3/35/Minecraft_Java_%26_Bedrock_Edition_for_PC_horizontal_key_art.png",
+  icon: `${ICON_CDN}/minecraft.webp`,
+  logo: true,
+});
+
 // Keyed by the catalog image tag (see backend CuratedGameTemplates). Games absent
 // here fall back to the gradient + initials tile.
 const GAME_IMAGES: Record<string, GameImages> = {
@@ -56,9 +66,9 @@ const GAME_IMAGES: Record<string, GameImages> = {
   "jammsen/sons-of-the-forest-dedicated-server:latest": steam(1326470),
   "factoriotools/factorio:stable": steam(427520),
   "ghcr.io/balnaimi/conan-exiles-server:latest": steam(440900),
-  // Not on Steam — curated logos.
-  "itzg/minecraft-server:latest": logo("minecraft"),
-  "itzg/minecraft-bedrock-server:latest": logo("minecraft"),
+  // Not on Steam — curated art.
+  "itzg/minecraft-server:latest": minecraft(),
+  "itzg/minecraft-bedrock-server:latest": minecraft(),
   "indifferentbroccoli/hytale-server-docker:latest": logo("hytale"),
 };
 

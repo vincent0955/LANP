@@ -5,7 +5,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { useScaleServer, useServer, useServerSecrets } from "@/api/queries";
 import { toastApiError } from "@/lib/errors";
-import { gameArt, gameInitials } from "@/lib/gameArt";
+import { GameArt } from "@/components/GameArt";
 import { cn } from "@/lib/utils";
 import { DeleteServerDialog } from "../DeleteServerDialog";
 import { OverviewTab } from "./OverviewTab";
@@ -90,11 +90,8 @@ export function ServerDetailPage() {
 
       {/* Header */}
       <div className="mb-[30px] flex items-center gap-[18px]">
-        <div
-          className="flex size-16 shrink-0 items-center justify-center rounded-[10px]"
-          style={{ background: gameArt(data.game) }}
-        >
-          <span className="text-2xl font-extrabold text-white/90">{gameInitials(data.game)}</span>
+        <div className="relative size-16 shrink-0 overflow-hidden rounded-[10px]">
+          <GameArt imageTag={data.image} name={data.game} variant="icon" />
         </div>
         <div className="min-w-0">
           <h1 className="truncate text-[27px] font-extrabold leading-[1.1] tracking-[-0.02em]">

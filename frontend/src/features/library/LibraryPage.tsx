@@ -4,7 +4,7 @@ import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { useGames } from "@/api/queries";
-import { gameArt, gameInitials } from "@/lib/gameArt";
+import { GameArt } from "@/components/GameArt";
 import { DeployDialog } from "./DeployDialog";
 import type { GameTemplate } from "@/api/types";
 
@@ -61,14 +61,9 @@ export function LibraryPage() {
               key={game.imageTag}
               className="group overflow-hidden rounded-lg border border-[#e3eaf1] bg-card transition-all hover:-translate-y-[3px] hover:border-[#b9dff5] hover:shadow-[0_8px_22px_rgba(16,49,74,0.10)]"
             >
-              {/* Gradient box art + initials — no image assets. */}
-              <div
-                className="flex h-[150px] items-center justify-center"
-                style={{ background: gameArt(game.displayName) }}
-              >
-                <span className="text-5xl font-extrabold tracking-[-0.02em] text-white/90">
-                  {gameInitials(game.displayName)}
-                </span>
+              {/* Real cover art, falling back to the gradient + initials tile. */}
+              <div className="relative h-[150px] overflow-hidden">
+                <GameArt imageTag={game.imageTag} name={game.displayName} variant="banner" />
               </div>
               <div className="px-4 pb-[17px] pt-[15px]">
                 <div

@@ -120,6 +120,11 @@ export function useReachabilityTest(name: string) {
   return useMutation({ mutationFn: () => api.reachability(name) });
 }
 
+// Same idea, but for the whole forwarded port window (Setup → open all ports).
+export function useRangeReachabilityTest() {
+  return useMutation({ mutationFn: () => api.rangeReachability() });
+}
+
 export function useDeployServer() {
   const queryClient = useQueryClient();
   return useMutation({

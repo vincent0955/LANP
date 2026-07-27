@@ -52,6 +52,16 @@ public sealed class NetworkController : ControllerBase
     }
 
     /// <summary>
+    /// Diagnoses the whole forwardable port window in one shot, for users who
+    /// forward all of it once instead of server by server. Independent of any
+    /// server: sample ports are held open for the probe, so an empty range that
+    /// is correctly forwarded still reports open.
+    /// </summary>
+    [HttpGet("reachability")]
+    public async Task<IActionResult> GetRangeReachability(CancellationToken ct) =>
+        Ok(await _diagnostics.CheckRangeReachabilityAsync(ct));
+
+    /// <summary>
     /// Generates exact firewall + router-forwarding instructions for a server from
     /// its actually-allocated host ports.
     /// </summary>

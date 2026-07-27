@@ -236,6 +236,20 @@ export interface ServerReachability {
   ports: PortReachability[];
 }
 
+/**
+ * Machine-wide diagnosis of the whole forwardable window, for the "open all the
+ * ports once" setup path. Only a sample of the range is probed — router rules
+ * are written as ranges, so the sample decides the whole window.
+ */
+export interface RangeReachability {
+  publicAddress: string | null;
+  cgnatDetected: boolean;
+  cgnatDetail: string | null;
+  rangeStart: number;
+  rangeEnd: number;
+  ports: PortReachability[];
+}
+
 export interface ForwardingRule {
   name: string;
   protocol: string;

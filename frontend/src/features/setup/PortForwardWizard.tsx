@@ -1,45 +1,54 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { Wifi } from "lucide-react";
-import { useForwardingGuide, useNetworkInfo, useReachabilityTest } from "@/api/queries";
+import { useNetworkInfo, useRangeReachabilityTest } from "@/api/queries";
 import { CopyButton } from "@/components/CopyButton";
 import { PortTestRow } from "@/components/PortTestRow";
 import { useConnectivity } from "@/lib/connectivity";
 import { reachabilityPassed } from "@/lib/reachability";
 import { cn } from "@/lib/utils";
-import { primaryBtn } from "./ui";
-import type { ServerDetail } from "@/api/types";
+import { primaryBtn } from "@/features/servers/detail/ui";
 
-type Step = "choice" | "local" | "firewall" | "portforward" | "test";
+export type PortForwardStep = "firewall" | "portforward" | "test";
 
-const PUBLIC_STEPS: Step[] = ["firewall", "portforward", "test"];
+const STEPS: PortForwardStep[] = ["firewall", "portforward", "test"];
 
 interface Props {
-  server: ServerDetail;
   open: boolean;
+  /** "firewall" for the full tutorial, "test" for the standalone test button. */
+  initialStep: PortForwardStep;
   onClose: () => void;
 }
 
 /**
- * Guided connection-setup tutorial (design handoff → Tutorial wizard): local
- * path is a dead end by design ("you're good to go"), the public path walks
- * firewall → router port-forward → an outside-in reachability test. A full pass
- * marks this machine "Verified" (persisted; the port range covers all servers).
+ * The per-server ConnectionWizard's public path, done once for the whole port
+ * window instead of one server at a time: firewall → router forward → an
+ * outside-in test of the range. Every server the app will ever create lands
+ * inside this window, so a pass here means no server needs its own setup.
  */
-export function ConnectionWizard({ server, open, onClose }: Props) {
-  const [step, setStep] = useState<Step>("choice");
+export function PortForwardWizard({ open, initialStep, onClose }: Props) {
+  const [step, setStep] = useState<PortForwardStep>(initialStep);
   const networkInfo = useNetworkInfo().data;
-  const guide = useForwardingGuide(server.name).data;
-  const test = useReachabilityTest(server.name);
+  const test = useRangeReachabilityTest();
   const setVerified = useConnectivity((s) => s.setVerified);
 
-  // Every open starts the tutorial from its first screen with a fresh test.
-  const { reset } = test;
+  // Every open restarts the wizard at its entry step with a fresh test. Entering
+  // straight at the test step means the user pressed "Test public connection",
+  // so run it immediately rather than making them press a second button.
+  const { reset, mutate } = test;
+  const runTest = useCallback(() => {
+    mutate(undefined, {
+      onSuccess: (r) => {
+        if (reachabilityPassed(r)) setVerified(true);
+      },
+    });
+  }, [mutate, setVerified]);
+
   useEffect(() => {
-    if (open) {
-      setStep("choice");
-      reset();
-    }
-  }, [open, reset]);
+    if (!open) return;
+    setStep(initialStep);
+    reset();
+    if (initialStep === "test") runTest();
+  }, [open, initialStep, reset, runTest]);
 
   useEffect(() => {
     if (!open) return;
@@ -52,46 +61,30 @@ export function ConnectionWizard({ server, open, onClose }: Props) {
 
   if (!open) return null;
 
-  const joinPort = server.ports.find((p) => !p.name.toLowerCase().includes("rcon"));
   const lanAddress = networkInfo?.lanAddresses[0] ?? "localhost";
-  const localJoin = joinPort ? `${lanAddress}:${joinPort.nodePort}` : lanAddress;
-  const publicJoin =
-    joinPort && networkInfo?.publicAddress
-      ? `${networkInfo.publicAddress}:${joinPort.nodePort}`
-      : null;
   const portRange = networkInfo
     ? `${networkInfo.nodePortRangeStart} – ${networkInfo.nodePortRangeEnd}`
     : "…";
   const portRangeCopy = networkInfo
     ? `${networkInfo.nodePortRangeStart}-${networkInfo.nodePortRangeEnd}`
     : "";
-  const firewallCommands =
-    guide?.firewallCommands && guide.firewallCommands.length > 0
-      ? guide.firewallCommands
-      : networkInfo
-        ? [
-            `netsh advfirewall firewall add rule name="LANP" dir=in action=allow protocol=TCP localport=${networkInfo.nodePortRangeStart}-${networkInfo.nodePortRangeEnd}`,
-            `netsh advfirewall firewall add rule name="LANP UDP" dir=in action=allow protocol=UDP localport=${networkInfo.nodePortRangeStart}-${networkInfo.nodePortRangeEnd}`,
-          ]
-        : [];
+  const portCount = networkInfo
+    ? networkInfo.nodePortRangeEnd - networkInfo.nodePortRangeStart + 1
+    : 0;
+  const firewallCommands = networkInfo
+    ? [
+        `netsh advfirewall firewall add rule name="LANP" dir=in action=allow protocol=TCP localport=${portRangeCopy}`,
+        `netsh advfirewall firewall add rule name="LANP UDP" dir=in action=allow protocol=UDP localport=${portRangeCopy}`,
+      ]
+    : [];
 
-  const stepIdx = PUBLIC_STEPS.indexOf(step);
+  const stepIdx = STEPS.indexOf(step);
   const result = test.data;
   const passed = result !== undefined && reachabilityPassed(result);
 
   const goBack = () => {
-    if (step === "local" || step === "firewall") setStep("choice");
-    else if (step === "portforward") setStep("firewall");
+    if (step === "portforward") setStep("firewall");
     else if (step === "test") setStep("portforward");
-  };
-
-  const runTest = () => {
-    if (test.isPending) return;
-    test.mutate(undefined, {
-      onSuccess: (r) => {
-        if (reachabilityPassed(r)) setVerified(true);
-      },
-    });
   };
 
   return (
@@ -105,7 +98,7 @@ export function ConnectionWizard({ server, open, onClose }: Props) {
       >
         {/* Header */}
         <div className="flex items-center gap-3 border-b border-[#eef3f7] px-[26px] py-5">
-          {step !== "choice" && (
+          {step !== initialStep && (
             <button
               type="button"
               onClick={goBack}
@@ -114,10 +107,12 @@ export function ConnectionWizard({ server, open, onClose }: Props) {
               ← Back
             </button>
           )}
-          <span className="text-[15px] font-bold">Connection setup</span>
-          {stepIdx >= 0 && (
+          <span className="text-[15px] font-bold">
+            {initialStep === "test" ? "Test public connection" : "Open all ports"}
+          </span>
+          {initialStep !== "test" && (
             <div className="ml-2 flex items-center gap-1.5">
-              {PUBLIC_STEPS.map((s, i) => (
+              {STEPS.map((s, i) => (
                 <span
                   key={s}
                   className={cn(
@@ -138,77 +133,19 @@ export function ConnectionWizard({ server, open, onClose }: Props) {
           </button>
         </div>
 
-        {/* Choice */}
-        {step === "choice" && (
-          <div className="px-[26px] pb-[26px] pt-[30px]">
-            <div className="text-[22px] font-extrabold tracking-[-0.01em]">
-              Who's joining your server?
-            </div>
-            <div className="mt-1.5 text-[14.5px] text-muted-foreground">
-              This decides whether there's any setup at all.
-            </div>
-            <div className="mt-[22px] grid grid-cols-2 gap-3.5">
-              <button
-                type="button"
-                onClick={() => setStep("local")}
-                className="cursor-pointer rounded-[10px] border-[1.5px] border-[#e3eaf1] p-[22px] text-left transition-colors hover:border-primary hover:bg-accent"
-              >
-                <div className="text-[26px]">🏠</div>
-                <div className="mt-2.5 text-base font-bold">Same house or network</div>
-                <div className="mt-[5px] text-[13px] leading-normal text-muted-foreground">
-                  Roommates, family, LAN party. Everyone is on your Wi‑Fi.
-                </div>
-              </button>
-              <button
-                type="button"
-                onClick={() => setStep("firewall")}
-                className="cursor-pointer rounded-[10px] border-[1.5px] border-[#e3eaf1] p-[22px] text-left transition-colors hover:border-primary hover:bg-accent"
-              >
-                <div className="text-[26px]">🌍</div>
-                <div className="mt-2.5 text-base font-bold">Friends over the internet</div>
-                <div className="mt-[5px] text-[13px] leading-normal text-muted-foreground">
-                  Anyone, anywhere. Needs a one‑time router setup (~5 min).
-                </div>
-              </button>
-            </div>
-          </div>
-        )}
-
-        {/* Local — all good */}
-        {step === "local" && (
-          <div className="px-[26px] pb-[34px] pt-10 text-center">
-            <div className="mx-auto mb-4 flex size-[68px] items-center justify-center rounded-full bg-[#e4f7ee] text-[30px] text-[#1d7a51]">
-              ✓
-            </div>
-            <div className="text-2xl font-extrabold tracking-[-0.01em]">You're good to go</div>
-            <div className="mx-auto mt-2 max-w-[400px] text-[14.5px] leading-[1.55] text-muted-foreground">
-              Local play needs zero setup. Just share your local address with anyone on your
-              network:
-            </div>
-            <div className="mt-[18px] inline-flex items-center gap-3 rounded-lg border bg-[#fbfdfe] px-5 py-[13px]">
-              <span className="font-mono text-base font-semibold">{localJoin}</span>
-              <CopyButton text={localJoin} />
-            </div>
-            <div className="mt-[26px]">
-              <button type="button" className={`${primaryBtn} px-[30px] py-[13px] text-[13.5px]`} onClick={onClose}>
-                Done
-              </button>
-            </div>
-          </div>
-        )}
-
-        {/* Public step 1 — firewall */}
+        {/* Step 1 — firewall */}
         {step === "firewall" && (
           <div className="px-[26px] pb-[26px] pt-[30px]">
             <div className="text-[13px] font-bold uppercase tracking-[0.08em] text-[#2596d1]">
               Step 1 of 3
             </div>
             <div className="mt-1.5 text-[22px] font-extrabold tracking-[-0.01em]">
-              Let the game through your firewall
+              Let the games through your firewall
             </div>
             <div className="mt-1.5 text-[14.5px] leading-[1.55] text-muted-foreground">
               Windows blocks incoming connections by default. Run this once as administrator — it
-              opens LANP's ports ({portRange}) for every server, now and later.
+              opens all {portCount} ports ({portRange}) the app ever uses, for every server you make
+              now or later.
             </div>
             <div className="mt-[18px] flex items-center gap-3.5 rounded-lg bg-[#10161f] px-[18px] py-4">
               <div className="flex-1 overflow-x-auto whitespace-nowrap font-mono text-[12.5px] leading-[1.6] text-[#a8e6ff]">
@@ -234,18 +171,18 @@ export function ConnectionWizard({ server, open, onClose }: Props) {
           </div>
         )}
 
-        {/* Public step 2 — port forward */}
+        {/* Step 2 — port forward */}
         {step === "portforward" && (
           <div className="px-[26px] pb-[26px] pt-[30px]">
             <div className="text-[13px] font-bold uppercase tracking-[0.08em] text-[#2596d1]">
               Step 2 of 3
             </div>
             <div className="mt-1.5 text-[22px] font-extrabold tracking-[-0.01em]">
-              Forward the ports on your router
+              Forward the whole range on your router
             </div>
             <div className="mt-1.5 text-[14.5px] leading-[1.55] text-muted-foreground">
-              Tell your router to send game traffic to this PC. In your router's admin page, find
-              “Port forwarding” and add one rule:
+              One rule covers every server. In your router's admin page, find “Port forwarding” and
+              add a single range rule:
             </div>
             <div className="mt-[18px] overflow-hidden rounded-lg border">
               {[
@@ -268,8 +205,8 @@ export function ConnectionWizard({ server, open, onClose }: Props) {
             </div>
             <div className="mt-3 text-[13px] text-[#8795a3]">
               Router page is usually at <span className="font-mono text-xs">192.168.1.1</span> or{" "}
-              <span className="font-mono text-xs">10.0.0.1</span>. Look for Port Forwarding under
-              Advanced or NAT settings.
+              <span className="font-mono text-xs">10.0.0.1</span>. If it only accepts one port per
+              rule, add a rule for each port you actually use — the test below tells you either way.
             </div>
             <div className="mt-6 flex justify-end">
               <button
@@ -283,33 +220,32 @@ export function ConnectionWizard({ server, open, onClose }: Props) {
           </div>
         )}
 
-        {/* Public step 3 — test */}
+        {/* Step 3 — test */}
         {step === "test" && (
           <div className="px-[26px] pb-[26px] pt-[30px]">
-            <div className="text-[13px] font-bold uppercase tracking-[0.08em] text-[#2596d1]">
-              Step 3 of 3
-            </div>
+            {initialStep !== "test" && (
+              <div className="text-[13px] font-bold uppercase tracking-[0.08em] text-[#2596d1]">
+                Step 3 of 3
+              </div>
+            )}
             <div className="mt-1.5 text-[22px] font-extrabold tracking-[-0.01em]">
               Test your connection
             </div>
             <div className="mt-1.5 text-[14.5px] leading-[1.55] text-muted-foreground">
-              We'll check from the outside whether players on the internet can reach this server.
+              We check the ends and the middle of the range from the outside — router rules cover a
+              range as a whole, so those three answer for all {portCount || "of the"} ports. No
+              server has to be running: the app holds each port open for the test.
             </div>
 
             <div className="mt-[18px] flex flex-col gap-2.5">
-              {(result?.ports ?? guide?.rules ?? server.ports).map((port) => (
+              {(result?.ports ?? placeholderPorts(networkInfo)).map((port) => (
                 <PortTestRow
-                  key={`${port.name}-${port.protocol}-${portNumber(port)}`}
+                  key={port.port}
                   name={port.name}
                   protocol={port.protocol}
-                  port={portNumber(port)}
+                  port={port.port}
                   running={test.isPending}
-                  result={result?.ports.find(
-                    (p) =>
-                      p.name === port.name &&
-                      p.protocol === port.protocol &&
-                      p.port === portNumber(port),
-                  )}
+                  result={result?.ports.find((p) => p.port === port.port)}
                 />
               ))}
             </div>
@@ -324,8 +260,9 @@ export function ConnectionWizard({ server, open, onClose }: Props) {
               <div className="mt-4 flex items-center gap-3 rounded-lg border border-[#bfe8d2] bg-[#e4f7ee] px-[18px] py-3.5">
                 <span className="text-[17px]">🎉</span>
                 <span className="text-sm font-semibold text-[#1d7a51]">
-                  Ready to go! Share your public address:{" "}
-                  <span className="font-mono text-[13px]">{publicJoin ?? "—"}</span>
+                  All set — every server you create is reachable at{" "}
+                  <span className="font-mono text-[13px]">{result?.publicAddress ?? "—"}</span> on
+                  its own port.
                 </span>
               </div>
             )}
@@ -362,6 +299,22 @@ export function ConnectionWizard({ server, open, onClose }: Props) {
   );
 }
 
-function portNumber(port: { port: number } | { nodePort: number }): number {
-  return "port" in port ? port.port : port.nodePort;
+/**
+ * The rows shown before the first test runs — the same sample the backend
+ * probes (first, middle, last of the window), so the list doesn't reshuffle
+ * once results arrive.
+ */
+function placeholderPorts(
+  networkInfo: { nodePortRangeStart: number; nodePortRangeEnd: number } | undefined,
+) {
+  if (!networkInfo) return [];
+  const { nodePortRangeStart: start, nodePortRangeEnd: end } = networkInfo;
+  const middle = start + Math.floor((end - start) / 2);
+  return [
+    { name: "First port in range", port: start },
+    { name: "Middle of range", port: middle },
+    { name: "Last port in range", port: end },
+  ]
+    .filter((p, i, all) => all.findIndex((o) => o.port === p.port) === i)
+    .map((p) => ({ ...p, protocol: "TCP" }));
 }

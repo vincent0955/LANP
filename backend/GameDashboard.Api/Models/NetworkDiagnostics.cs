@@ -37,6 +37,20 @@ public sealed record ServerReachability(
     string? CgnatDetail,
     IReadOnlyList<PortReachability> Ports);
 
+/// <summary>
+/// Machine-wide diagnosis of the whole forwardable port window, for users who
+/// forward the entire range once instead of server by server. Only a sample of
+/// the window is probed (NetworkDiagnosticsService): a router range rule either
+/// covers every port in it or none, so the sample settles it.
+/// </summary>
+public sealed record RangeReachability(
+    string? PublicAddress,
+    bool CgnatDetected,
+    string? CgnatDetail,
+    int RangeStart,
+    int RangeEnd,
+    IReadOnlyList<PortReachability> Ports);
+
 /// <summary>One row of the forwarding table: the same host port, TCP and/or UDP.</summary>
 public sealed record ForwardingRule(string Name, string Protocol, int Port);
 

@@ -19,7 +19,7 @@ export function LibraryPage() {
       <div>
         <h1 className="text-xl font-semibold">Game Library</h1>
         <p className="text-sm text-muted-foreground">
-          Deploy a dedicated server for any of these games with one click.
+          Deploy a dedicated server.
         </p>
       </div>
 

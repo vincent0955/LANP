@@ -1,52 +1,88 @@
-import { Globe, TriangleAlert } from "lucide-react";
+import { useState } from "react";
+import { CheckCircle2, Globe, TriangleAlert, Wifi } from "lucide-react";
+import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { useNetworkInfo } from "@/api/queries";
+import { useConnectivity } from "@/lib/connectivity";
+import { PortForwardWizard, type PortForwardStep } from "./PortForwardWizard";
 
 /**
  * Machine-wide network summary on the Setup screen (WS2): LAN/public address,
- * the one-time forward range, and a CGNAT hint. Per-server reachability testing
- * and exact forwarding instructions live on each server's Overview tab.
+ * the one-time forward range, and a CGNAT hint. Also hosts the whole-range
+ * tutorial and connection test, for users who'd rather open every port once
+ * than repeat the per-server wizard on each server's Overview tab.
  */
 export function NetworkCard() {
   const network = useNetworkInfo();
+  const verified = useConnectivity((s) => s.verified);
+  const [wizardStep, setWizardStep] = useState<PortForwardStep | null>(null);
+
   if (!network.isSuccess) return null;
 
   const { lanAddresses, publicAddress, nodePortRangeStart, nodePortRangeEnd } = network.data;
   const cgnat = isLikelyCgnat(publicAddress);
+  const portCount = nodePortRangeEnd - nodePortRangeStart + 1;
 
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle className="flex items-center gap-2">
-          <Globe className="size-5" /> Network
-        </CardTitle>
-        <CardDescription>How players reach your servers.</CardDescription>
-      </CardHeader>
-      <CardContent className="space-y-3">
-        <div className="divide-y text-sm">
-          <Row label="Local address" value={lanAddresses[0] ?? "—"} />
-          <Row label="Public address" value={publicAddress ?? "unknown"} />
-          <Row label="Forward once" value={`${nodePortRangeStart}–${nodePortRangeEnd} (TCP & UDP)`} />
-        </div>
+    <>
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <Globe className="size-5" /> Network
+          </CardTitle>
+          <CardDescription>How players reach your servers.</CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          <div className="divide-y text-sm">
+            <Row label="Local address" value={lanAddresses[0] ?? "—"} />
+            <Row label="Public address" value={publicAddress ?? "unknown"} />
+            <Row
+              label="Forward once"
+              value={`${nodePortRangeStart}–${nodePortRangeEnd} (TCP & UDP)`}
+            />
+          </div>
 
-        {cgnat ? (
-          <Alert variant="destructive">
-            <TriangleAlert className="size-4" />
-            <AlertTitle>Carrier-Grade NAT likely</AlertTitle>
-            <AlertDescription>
-              Your public address looks like a shared/CGNAT address, so router port forwarding won't
-              make servers reachable. Use a tunnel (e.g. Tailscale) or ask your ISP for a public IP.
-            </AlertDescription>
-          </Alert>
-        ) : (
+          {cgnat && (
+            <Alert variant="destructive">
+              <TriangleAlert className="size-4" />
+              <AlertTitle>Carrier-Grade NAT likely</AlertTitle>
+              <AlertDescription>
+                Your public address looks like a shared/CGNAT address, so router port forwarding
+                won't make servers reachable. Use a tunnel (e.g. Tailscale) or ask your ISP for a
+                public IP.
+              </AlertDescription>
+            </Alert>
+          )}
+
           <p className="text-xs text-muted-foreground">
-            Forward the port range above to this PC once on your router, then use each server's
-            Overview tab to generate exact instructions and test connectivity.
+            Open all {portCount} ports once and every server — the ones you have and the ones you
+            make later — is ready to go. Or skip this and set servers up one at a time from their
+            Overview tab.
           </p>
-        )}
-      </CardContent>
-    </Card>
+
+          <div className="flex flex-wrap items-center gap-2">
+            <Button onClick={() => setWizardStep("firewall")}>
+              Open all ports (one-time setup)
+            </Button>
+            <Button variant="outline" onClick={() => setWizardStep("test")}>
+              <Wifi className="size-4" /> Test public connection
+            </Button>
+            {verified && (
+              <span className="flex items-center gap-1.5 text-xs font-medium text-emerald-600">
+                <CheckCircle2 className="size-4" /> Verified
+              </span>
+            )}
+          </div>
+        </CardContent>
+      </Card>
+
+      <PortForwardWizard
+        open={wizardStep !== null}
+        initialStep={wizardStep ?? "firewall"}
+        onClose={() => setWizardStep(null)}
+      />
+    </>
   );
 }
 

@@ -11,6 +11,7 @@ import type {
   MinecraftVersionsResponse,
   ModrinthSearchResponse,
   NetworkInfo,
+  RangeReachability,
   RconCommandResponse,
   RuntimeStatus,
   ServerDetail,
@@ -120,6 +121,7 @@ export const api = {
   networkInfo: () => http.get<NetworkInfo>("/api/network"),
   reachability: (name: string) =>
     http.get<ServerReachability>(`/api/network/reachability/${encodeURIComponent(name)}`),
+  rangeReachability: () => http.get<RangeReachability>("/api/network/reachability"),
   forwardingGuide: (name: string) =>
     http.get<ForwardingGuide>(
       `/api/network/servers/${encodeURIComponent(name)}/forwarding-guide`,

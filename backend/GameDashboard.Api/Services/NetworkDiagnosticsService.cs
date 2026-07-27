@@ -15,6 +15,13 @@ namespace GameDashboard.Api.Services;
 public interface INetworkDiagnosticsService
 {
     Task<ServerReachability> CheckReachabilityAsync(string serverName, CancellationToken ct);
+
+    /// <summary>
+    /// Diagnoses the whole forwardable port window at once, independently of any
+    /// server, for the "forward all 50 ports once" setup path.
+    /// </summary>
+    Task<RangeReachability> CheckRangeReachabilityAsync(CancellationToken ct);
+
     Task<ForwardingGuide> BuildForwardingGuideAsync(string serverName, CancellationToken ct);
 }
 
@@ -50,7 +57,7 @@ public sealed class NetworkDiagnosticsService : INetworkDiagnosticsService
             var locallyListening = isTcp && await IsLocallyListeningAsync(port.NodePort, ct);
 
             var (external, detail) = await ClassifyExternalAsync(
-                isTcp, port, publicIp, cgnat.Detected, locallyListening, ct);
+                isTcp, port.NodePort, publicIp, cgnat.Detected, locallyListening, ct);
 
             return new PortReachability(
                 port.Name, port.Protocol, port.NodePort, locallyListening, external, detail);
@@ -59,6 +66,57 @@ public sealed class NetworkDiagnosticsService : INetworkDiagnosticsService
         return new ServerReachability(
             serverName, publicIp, cgnat.Detected, cgnat.Detail, ports);
     }
+
+    public async Task<RangeReachability> CheckRangeReachabilityAsync(CancellationToken ct)
+    {
+        var start = Docker.ContainerSpecBuilder.HostPortRangeStart;
+        var end = Docker.ContainerSpecBuilder.HostPortRangeEnd;
+
+        var publicIp = await _publicIpService.GetPublicIpAsync(ct);
+        var cgnat = DetectCgnat(publicIp);
+
+        var ports = await Task.WhenAll(SampleRangePorts(start, end).Select(async port =>
+        {
+            // An idle port answers nothing, so probing the range as-is would report
+            // every port without a server on it as Closed even with the forward in
+            // place. Holding the port open for the length of the probe tests the
+            // router + firewall path itself; a running server already holding it
+            // serves the same purpose.
+            using var held = HeldPort.TryHold(port);
+            var locallyListening = held is not null || await IsLocallyListeningAsync(port, ct);
+
+            var name = RangePortName(port, start, end);
+            if (!locallyListening)
+            {
+                return new PortReachability(name, "TCP", port, false, ReachabilityState.Unverified,
+                    "Couldn't open this port for the test — another program on this PC is using it.");
+            }
+
+            var (external, detail) = await ClassifyExternalAsync(
+                isTcp: true, port, publicIp, cgnat.Detected, true, ct);
+
+            return new PortReachability(name, "TCP", port, true, external, detail);
+        }));
+
+        return new RangeReachability(publicIp, cgnat.Detected, cgnat.Detail, start, end, ports);
+    }
+
+    /// <summary>
+    /// The ports actually probed by a whole-range test: first, middle and last of
+    /// the window. Router and firewall rules are written as ranges — they cover
+    /// every port in the window or none — so three spread-out samples settle it
+    /// without 50 external probes.
+    /// </summary>
+    internal static IReadOnlyList<int> SampleRangePorts(int start, int end) =>
+        new[] { start, start + ((end - start) / 2), end }
+            .Distinct()
+            .OrderBy(p => p)
+            .ToList();
+
+    private static string RangePortName(int port, int start, int end) =>
+        port == start ? "First port in range"
+        : port == end ? "Last port in range"
+        : "Middle of range";
 
     public async Task<ForwardingGuide> BuildForwardingGuideAsync(string serverName, CancellationToken ct)
     {
@@ -85,7 +143,7 @@ public sealed class NetworkDiagnosticsService : INetworkDiagnosticsService
     // --- external reachability classification ---
 
     private async Task<(ReachabilityState State, string? Detail)> ClassifyExternalAsync(
-        bool isTcp, PortMapping port, string? publicIp, bool cgnat, bool locallyListening, CancellationToken ct)
+        bool isTcp, int port, string? publicIp, bool cgnat, bool locallyListening, CancellationToken ct)
     {
         if (!isTcp)
         {
@@ -104,7 +162,7 @@ public sealed class NetworkDiagnosticsService : INetworkDiagnosticsService
             return (ReachabilityState.Closed, "The server isn't listening on this port yet — start it first.");
         }
 
-        var state = await _portChecker.CheckTcpAsync(publicIp, port.NodePort, ct);
+        var state = await _portChecker.CheckTcpAsync(publicIp, port, ct);
         var detail = state switch
         {
             ReachabilityState.Open => "Reachable from the internet.",
@@ -133,6 +191,36 @@ public sealed class NetworkDiagnosticsService : INetworkDiagnosticsService
         {
             return false;
         }
+    }
+
+    /// <summary>
+    /// Binds a host port for the length of an outside-in probe so an otherwise
+    /// unused port still completes the TCP handshake (queued in the accept
+    /// backlog — nothing has to accept for the probe to succeed). Yields null
+    /// when the port is already taken, which is equally testable.
+    /// </summary>
+    private sealed class HeldPort : IDisposable
+    {
+        private readonly TcpListener _listener;
+
+        private HeldPort(TcpListener listener) => _listener = listener;
+
+        public static HeldPort? TryHold(int port)
+        {
+            var listener = new TcpListener(IPAddress.Any, port);
+            try
+            {
+                listener.Start();
+                return new HeldPort(listener);
+            }
+            catch (SocketException)
+            {
+                listener.Stop();
+                return null;
+            }
+        }
+
+        public void Dispose() => _listener.Stop();
     }
 
     // --- CGNAT / private-range detection ---

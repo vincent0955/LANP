@@ -330,6 +330,81 @@ public class ContainerSpecBuilderTests
         Assert.Equal(exactly63, spec.CreateParameters.Name);
     }
 
+    // --- host-port reassignment (deploy retry after a bind clash) ---
+    // The allocator only sees ports published by containers on this engine, so
+    // a port held by the other engine, a leaked docker-proxy socket, or any
+    // unrelated process only shows up as a start failure. These pin the move-over.
+
+    [Fact]
+    public void WithReassignedHostPorts_Moves_Off_The_Blocked_Port()
+    {
+        var builder = new ContainerSpecBuilder();
+        var spec = builder.Build(
+            CuratedGameTemplates.Cs2, Request(), NoUsedPorts, NoSecrets);
+        var original = spec.Ports.Select(p => p.NodePort).ToList();
+
+        var moved = builder.WithReassignedHostPorts(spec, original.ToHashSet());
+
+        Assert.All(moved.Ports, p => Assert.DoesNotContain(p.NodePort, original));
+        Assert.Equal(original.Count, moved.Ports.Count);
+    }
+
+    [Fact]
+    public void WithReassignedHostPorts_Keeps_The_Container_Side_Untouched()
+    {
+        // Only the host side may move — container ports and protocols are fixed
+        // by the game, and the volume/name must survive the retry.
+        var builder = new ContainerSpecBuilder();
+        var spec = builder.Build(CuratedGameTemplates.Cs2, Request(), NoUsedPorts, NoSecrets);
+
+        var moved = builder.WithReassignedHostPorts(
+            spec, spec.Ports.Select(p => p.NodePort).ToHashSet());
+
+        Assert.Equal(
+            spec.Ports.Select(p => (p.Name, p.Protocol, p.ContainerPort)),
+            moved.Ports.Select(p => (p.Name, p.Protocol, p.ContainerPort)));
+        Assert.Equal(spec.Name, moved.Name);
+        Assert.Equal(spec.VolumeName, moved.VolumeName);
+    }
+
+    [Fact]
+    public void WithReassignedHostPorts_Updates_Bindings_And_The_Ports_Label()
+    {
+        // The status mapper reads the ports label back for a running container;
+        // a stale label would hand players a port nothing listens on.
+        var builder = new ContainerSpecBuilder();
+        var spec = builder.Build(CuratedGameTemplates.Cs2, Request(), NoUsedPorts, NoSecrets);
+
+        var moved = builder.WithReassignedHostPorts(
+            spec, spec.Ports.Select(p => p.NodePort).ToHashSet());
+
+        var bound = moved.CreateParameters.HostConfig.PortBindings
+            .SelectMany(kv => kv.Value)
+            .Select(b => int.Parse(b.HostPort))
+            .ToHashSet();
+        Assert.Equal(moved.Ports.Select(p => p.NodePort).ToHashSet(), bound);
+
+        var labelled = JsonSerializer.Deserialize<List<PortMapping>>(
+            moved.CreateParameters.Labels[ContainerLabels.Ports])!;
+        Assert.Equal(
+            moved.Ports.Select(p => p.NodePort),
+            labelled.Select(p => p.NodePort));
+    }
+
+    [Fact]
+    public void WithReassignedHostPorts_Throws_When_The_Whole_Range_Is_Blocked()
+    {
+        var builder = new ContainerSpecBuilder();
+        var spec = builder.Build(CuratedGameTemplates.Cs2, Request(), NoUsedPorts, NoSecrets);
+        var everything = Enumerable
+            .Range(ContainerSpecBuilder.HostPortRangeStart,
+                ContainerSpecBuilder.HostPortRangeEnd - ContainerSpecBuilder.HostPortRangeStart + 1)
+            .ToHashSet();
+
+        Assert.Throws<InvalidOperationException>(
+            () => builder.WithReassignedHostPorts(spec, everything));
+    }
+
     [Fact]
     public void VolumeNameFor_Is_The_Name_Plus_Data_Suffix()
     {

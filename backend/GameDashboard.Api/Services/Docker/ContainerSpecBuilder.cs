@@ -25,6 +25,17 @@ public interface IContainerSpecBuilder
         IReadOnlySet<int> usedHostPorts,
         IReadOnlyDictionary<string, string> secretEnv,
         string? modpackMinecraftVersion = null);
+
+    /// <summary>
+    /// Returns a copy of <paramref name="spec"/> with fresh host ports, avoiding
+    /// everything in <paramref name="usedHostPorts"/>. Used when a container
+    /// fails to start because its assigned port is already bound: the engine's
+    /// container list can't see ports held by anything else on the machine
+    /// (another engine, a leaked docker-proxy socket, an unrelated process), so
+    /// the only reliable signal is the bind failure itself.
+    /// </summary>
+    ContainerServerSpec WithReassignedHostPorts(
+        ContainerServerSpec spec, IReadOnlySet<int> usedHostPorts);
 }
 
 /// <summary>Everything DockerService needs to pull + create + start one server.</summary>
@@ -137,6 +148,34 @@ public sealed class ContainerSpecBuilder : IContainerSpecBuilder
 
         return new ContainerServerSpec(
             request.Name, image, volumeName, create, assignedPorts, resources, mergedConfig);
+    }
+
+    public ContainerServerSpec WithReassignedHostPorts(
+        ContainerServerSpec spec, IReadOnlySet<int> usedHostPorts)
+    {
+        // Reassign from the template shape the existing mapping already carries,
+        // so only the host side moves — container ports and protocols are fixed
+        // by the game.
+        var templatePorts = spec.Ports
+            .Select(p => new TemplatePort(p.Name, p.Protocol, p.ContainerPort))
+            .ToList();
+
+        var reassigned = AssignHostPorts(templatePorts, usedHostPorts);
+
+        var create = spec.CreateParameters;
+        create.HostConfig.PortBindings = reassigned.ToDictionary(
+            p => PortKey(p),
+            p => (IList<PortBinding>)new List<PortBinding>
+            {
+                new() { HostPort = p.NodePort.ToString() }
+            });
+
+        // The ports label is what the status mapper reads back for a running
+        // container; leaving the old assignment there would make the UI hand
+        // players a port nothing listens on.
+        create.Labels[ContainerLabels.Ports] = JsonSerializer.Serialize(reassigned);
+
+        return spec with { CreateParameters = create, Ports = reassigned };
     }
 
     private static string PortKey(PortMapping p) =>

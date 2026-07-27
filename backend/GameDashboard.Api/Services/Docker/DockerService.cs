@@ -459,13 +459,7 @@ public sealed class DockerService : IServerOrchestrator
                 },
             }, CancellationToken.None);
 
-            await client.Containers.CreateContainerAsync(spec.CreateParameters, CancellationToken.None);
-
-            if (startAfterCreate)
-            {
-                await client.Containers.StartContainerAsync(
-                    spec.Name, new ContainerStartParameters(), CancellationToken.None);
-            }
+            spec = await CreateAndStartWithPortRetryAsync(client, spec, startAfterCreate);
 
             _deployTracker.Remove(spec.Name);
             _logger.LogInformation(
@@ -476,6 +470,91 @@ public sealed class DockerService : IServerOrchestrator
         {
             _deployTracker.MarkFailed(spec.Name, ex.Message);
             _logger.LogError(ex, "Background deploy of server {Name} failed.", spec.Name);
+        }
+    }
+
+    /// <summary>
+    /// Creates and starts the container, moving to different host ports and
+    /// retrying when the start fails because a port is already bound.
+    ///
+    /// The port allocator can only see ports published by containers on this
+    /// engine. Anything else on the machine holding one — the other Docker
+    /// engine (Docker Desktop and the bundled runtime publish into the same
+    /// host port space), a docker-proxy socket outliving a removed container,
+    /// an unrelated process — is invisible to it, and dockerd only reports the
+    /// clash when the container starts. Failing the whole deploy there stranded
+    /// the server in "Error" with a port that was often free again seconds
+    /// later; the range has 50 ports, so moving over is nearly always possible.
+    /// </summary>
+    /// <returns>The spec actually deployed (ports may differ from the input).</returns>
+    private async Task<ContainerServerSpec> CreateAndStartWithPortRetryAsync(
+        IDockerClient client, ContainerServerSpec spec, bool startAfterCreate)
+    {
+        // Enough to step past a handful of occupied ports without hammering a
+        // genuinely exhausted range.
+        const int maxAttempts = 5;
+
+        var blocked = new HashSet<int>();
+
+        for (var attempt = 1; ; attempt++)
+        {
+            await client.Containers.CreateContainerAsync(spec.CreateParameters, CancellationToken.None);
+
+            if (!startAfterCreate)
+            {
+                return spec;
+            }
+
+            try
+            {
+                await client.Containers.StartContainerAsync(
+                    spec.Name, new ContainerStartParameters(), CancellationToken.None);
+                return spec;
+            }
+            catch (DockerApiException ex) when (IsPortAlreadyBound(ex) && attempt < maxAttempts)
+            {
+                // The created-but-unstarted container still owns the name, so it
+                // has to go before the next attempt can recreate it.
+                await TryRemoveContainerAsync(client, spec.Name);
+
+                blocked.UnionWith(spec.Ports.Select(p => p.NodePort));
+                var used = new HashSet<int>(await GatherUsedHostPortsAsync(client, CancellationToken.None));
+                used.UnionWith(blocked);
+
+                var previous = string.Join(", ", spec.Ports.Select(p => p.NodePort));
+                spec = _specBuilder.WithReassignedHostPorts(spec, used);
+                _logger.LogWarning(
+                    "Server {Name} could not bind host port(s) {Previous} (attempt {Attempt}/{Max}); " +
+                    "retrying on {Next}.",
+                    spec.Name, previous, attempt, maxAttempts,
+                    string.Join(", ", spec.Ports.Select(p => p.NodePort)));
+            }
+        }
+    }
+
+    /// <summary>
+    /// True for the engine's "that host port is taken" family of start failures.
+    /// Matched on the message because dockerd reports them all as a generic 500.
+    /// </summary>
+    private static bool IsPortAlreadyBound(DockerApiException ex)
+    {
+        var message = ex.ResponseBody ?? ex.Message ?? string.Empty;
+        return message.Contains("address already in use", StringComparison.OrdinalIgnoreCase)
+            || message.Contains("port is already allocated", StringComparison.OrdinalIgnoreCase)
+            || message.Contains("bind: permission denied", StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>Best-effort container removal; a failure here surfaces on the next create instead.</summary>
+    private async Task TryRemoveContainerAsync(IDockerClient client, string name)
+    {
+        try
+        {
+            await client.Containers.RemoveContainerAsync(
+                name, new ContainerRemoveParameters { Force = true }, CancellationToken.None);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "Could not remove container {Name} before a port-retry.", name);
         }
     }
 

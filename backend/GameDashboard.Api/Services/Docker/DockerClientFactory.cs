@@ -1,16 +1,23 @@
 using Docker.DotNet;
 using GameDashboard.Api.Configuration;
+using GameDashboard.Api.Services.Runtime;
 using Microsoft.Extensions.Options;
 
 namespace GameDashboard.Api.Services.Docker;
 
 /// <summary>
 /// Lazily builds the Docker Engine client, probing candidate endpoints in
-/// order (docs/docker-migration.md → Engine discovery):
-///   1. the configured Dashboard:DockerEndpoint override,
-///   2. the platform default (npipe on Windows / unix socket on Linux — covers
-///      an installed Docker Desktop or native engine),
-///   3. tcp://127.0.0.1:2375 (the bundled WSL runtime's loopback-only dockerd).
+/// order (docs/docker-migration.md → Engine discovery). A configured
+/// Dashboard:DockerEndpoint override always wins outright; otherwise the
+/// persisted <see cref="RuntimeMode"/> decides:
+///   • <see cref="RuntimeMode.DockerDesktop"/> — the platform default only
+///     (npipe on Windows / unix socket on Linux). Deliberately no fallback to
+///     the bundled endpoint: a user who picked their own engine should see
+///     "Docker Desktop isn't running", not get silently migrated onto a second
+///     VM whose containers their `docker ps` can't see.
+///   • <see cref="RuntimeMode.Bundled"/> — tcp://127.0.0.1:2375 (the bundled
+///     WSL runtime's loopback-only dockerd) first, then the platform default as
+///     a fallback so a Linux native engine still works untouched.
 ///
 /// Construction must never throw on a missing or unreachable engine — the
 /// backend has to start up and simply report an unhealthy status. Callers call
@@ -41,23 +48,42 @@ public sealed class DockerClientFactory : IDockerClientFactory, IDisposable
     private static readonly TimeSpan PingTimeout = TimeSpan.FromSeconds(3);
 
     private readonly DashboardOptions _options;
+    private readonly IRuntimeModeStore _modeStore;
     private readonly ILogger<DockerClientFactory> _logger;
     private readonly SemaphoreSlim _gate = new(1, 1);
 
     private IDockerClient? _cachedClient;
+    private RuntimeMode? _cachedMode;
     private string? _lastError;
 
-    public DockerClientFactory(IOptions<DashboardOptions> options, ILogger<DockerClientFactory> logger)
+    public DockerClientFactory(
+        IOptions<DashboardOptions> options,
+        IRuntimeModeStore modeStore,
+        ILogger<DockerClientFactory> logger)
     {
         _options = options.Value;
+        _modeStore = modeStore;
         _logger = logger;
     }
 
     public async Task<(IDockerClient? Client, string? Error)> TryGetClientAsync(CancellationToken ct)
     {
+        var mode = await _modeStore.GetAsync(ct);
+
         await _gate.WaitAsync(ct);
         try
         {
+            // The mode is meant to take effect on restart, but a cached client
+            // outliving a mid-session switch would keep serving the engine the
+            // user just switched away from — drop it rather than trust a ping
+            // that would happily succeed against the wrong engine.
+            if (_cachedClient is not null && _cachedMode != mode)
+            {
+                _logger.LogInformation("Container engine switched to {Mode}; re-probing endpoints.", mode);
+                _cachedClient.Dispose();
+                _cachedClient = null;
+            }
+
             // Re-verify the cached client on every call: an engine can die (or
             // be replaced — Docker Desktop closed, bundled runtime started)
             // mid-session, and a stale cached client would pin the dashboard
@@ -77,7 +103,7 @@ public sealed class DockerClientFactory : IDockerClientFactory, IDisposable
             }
 
             var failures = new List<string>();
-            foreach (var endpoint in CandidateEndpoints())
+            foreach (var endpoint in CandidateEndpoints(mode))
             {
                 var client = TryCreate(endpoint, failures);
                 if (client is null)
@@ -87,8 +113,9 @@ public sealed class DockerClientFactory : IDockerClientFactory, IDisposable
 
                 if (await PingAsync(client, endpoint, failures, ct))
                 {
-                    _logger.LogInformation("Connected to Docker engine at {Endpoint}.", endpoint);
+                    _logger.LogInformation("Connected to Docker engine at {Endpoint} ({Mode}).", endpoint, mode);
                     _cachedClient = client;
+                    _cachedMode = mode;
                     _lastError = null;
                     return (client, null);
                 }
@@ -107,7 +134,14 @@ public sealed class DockerClientFactory : IDockerClientFactory, IDisposable
         }
     }
 
-    private IEnumerable<string> CandidateEndpoints()
+    /// <summary>The bundled WSL runtime (Windows) exposes dockerd on loopback TCP.</summary>
+    internal const string BundledEndpoint = "tcp://127.0.0.1:2375";
+
+    internal static string PlatformDefaultEndpoint => OperatingSystem.IsWindows()
+        ? "npipe://./pipe/docker_engine"
+        : "unix:///var/run/docker.sock";
+
+    private IEnumerable<string> CandidateEndpoints(RuntimeMode mode)
     {
         if (!string.IsNullOrWhiteSpace(_options.DockerEndpoint))
         {
@@ -117,15 +151,21 @@ public sealed class DockerClientFactory : IDockerClientFactory, IDisposable
             yield break;
         }
 
-        yield return OperatingSystem.IsWindows()
-            ? "npipe://./pipe/docker_engine"
-            : "unix:///var/run/docker.sock";
+        if (mode == RuntimeMode.DockerDesktop)
+        {
+            // Sole candidate by design: see the type doc. Falling through to the
+            // bundled engine here would strand the user's containers on a VM
+            // their own docker CLI can't see.
+            yield return PlatformDefaultEndpoint;
+            yield break;
+        }
 
-        // The bundled WSL runtime (Windows) exposes dockerd on loopback TCP.
         if (OperatingSystem.IsWindows())
         {
-            yield return "tcp://127.0.0.1:2375";
+            yield return BundledEndpoint;
         }
+
+        yield return PlatformDefaultEndpoint;
     }
 
     private IDockerClient? TryCreate(string endpoint, List<string> failures)

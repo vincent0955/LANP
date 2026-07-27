@@ -146,11 +146,20 @@ export type RuntimePhase =
   | "Failed";
 
 /**
+ * Which container engine the app talks to. "Bundled" is the app-managed WSL
+ * runtime; "DockerDesktop" points it at a Docker engine the user already runs.
+ * Persisted server-side and honoured on every launch.
+ */
+export type RuntimeMode = "Bundled" | "DockerDesktop";
+
+/**
  * Bundled container runtime state (docs/docker-migration.md → Part 2). On
- * Linux only platform + engineReachable are meaningful (native engine).
+ * Linux only platform + engineReachable are meaningful (native engine); in
+ * DockerDesktop mode the WSL and distro fields are likewise not ours to report.
  */
 export interface RuntimeStatus {
   platform: "windows" | "linux";
+  mode: RuntimeMode;
   wslInstalled: boolean;
   distroImported: boolean;
   engineReachable: boolean;

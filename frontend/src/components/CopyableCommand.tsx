@@ -2,11 +2,15 @@ import { Copy } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 
-/** A one-line command shown in a monospace box with a copy button. */
+/**
+ * A command shown in a monospace box with a copy button. Long commands wrap
+ * rather than widening the box — min-w-0 stops the flex item from claiming its
+ * intrinsic width, which would otherwise stretch whatever card contains it.
+ */
 export function CopyableCommand({ command }: { command: string }) {
   return (
     <div className="flex items-start gap-2">
-      <code className="grow overflow-x-auto whitespace-pre rounded bg-muted px-2 py-1.5 font-mono text-xs">
+      <code className="min-w-0 grow whitespace-pre-wrap break-words rounded bg-muted px-2 py-1.5 font-mono text-xs">
         {command}
       </code>
       <Button

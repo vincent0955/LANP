@@ -27,12 +27,35 @@ public enum RuntimePhase
 }
 
 /// <summary>
+/// Which container engine the dashboard talks to. Persisted across restarts by
+/// <see cref="IRuntimeModeStore"/> and chosen by the user on the Setup screen;
+/// self-hosters who already run Docker Desktop on the box can point the
+/// dashboard at it instead of paying for a second VM.
+/// </summary>
+public enum RuntimeMode
+{
+    /// <summary>The app-managed WSL distro (default): installed, started and stopped by us.</summary>
+    Bundled,
+
+    /// <summary>
+    /// A Docker engine the user already runs (Docker Desktop on Windows, the
+    /// native daemon on Linux). We only connect to it — never install, start or
+    /// stop it; its lifecycle belongs to the user.
+    /// </summary>
+    DockerDesktop,
+}
+
+/// <summary>
 /// Snapshot of the bundled runtime's state for the Setup screen. On Linux
 /// only <see cref="Platform"/> and <see cref="EngineReachable"/> are
-/// meaningful (native engine, no WSL machinery).
+/// meaningful (native engine, no WSL machinery). In
+/// <see cref="RuntimeMode.DockerDesktop"/> mode the WSL fields are likewise
+/// meaningless — nothing is ours to install.
 /// </summary>
 public record RuntimeStatus(
     string Platform,
+    /// <summary>The persisted engine choice; drives which half of the Setup card applies.</summary>
+    RuntimeMode Mode,
     bool WslInstalled,
     bool DistroImported,
     bool EngineReachable,

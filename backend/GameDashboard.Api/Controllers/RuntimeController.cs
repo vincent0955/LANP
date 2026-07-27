@@ -16,15 +16,18 @@ namespace GameDashboard.Api.Controllers;
 public sealed class RuntimeController : ControllerBase
 {
     private readonly IRuntimeSetupService _runtime;
+    private readonly IRuntimeModeStore _modeStore;
     private readonly IServerOrchestrator _orchestrator;
     private readonly ILogger<RuntimeController> _logger;
 
     public RuntimeController(
         IRuntimeSetupService runtime,
+        IRuntimeModeStore modeStore,
         IServerOrchestrator orchestrator,
         ILogger<RuntimeController> logger)
     {
         _runtime = runtime;
+        _modeStore = modeStore;
         _orchestrator = orchestrator;
         _logger = logger;
     }
@@ -36,18 +39,62 @@ public sealed class RuntimeController : ControllerBase
     }
 
     /// <summary>
+    /// Switches the container engine between the app-managed bundled runtime and
+    /// a Docker Desktop the user already runs. Persisted, so every subsequent
+    /// launch honours it. The choice only takes full effect after the app
+    /// restarts (the response says so) — the backend's engine connection,
+    /// auto-start and shutdown behaviour are all decided at boot.
+    /// </summary>
+    [HttpPut("mode")]
+    public async Task<IActionResult> SetMode([FromBody] SetRuntimeModeRequest request, CancellationToken ct)
+    {
+        var current = await _modeStore.GetAsync(ct);
+        if (current == request.Mode)
+        {
+            return Ok(new { mode = current, restartRequired = false });
+        }
+
+        // Servers keep running on whichever engine hosts them; they simply stop
+        // being visible to a dashboard now pointed elsewhere. Say so plainly
+        // rather than silently orphaning them.
+        var runningElsewhere = 0;
+        try
+        {
+            var servers = await _orchestrator.ListServersAsync(ct);
+            runningElsewhere = servers.Count(s => s.Status is ServerStatus.Running or ServerStatus.Pending);
+        }
+        catch (ClusterUnreachableException)
+        {
+            // Current engine is already down — nothing to strand.
+        }
+
+        await _modeStore.SetAsync(request.Mode, ct);
+        _logger.LogInformation("Container engine switched from {Old} to {New}.", current, request.Mode);
+
+        return Ok(new { mode = request.Mode, restartRequired = true, runningServers = runningElsewhere });
+    }
+
+    /// <summary>
     /// Starts the background install (WSL feature → distro download/import →
     /// engine start). 202 when started; 409 when one is already running or the
     /// platform has no bundled runtime. Progress is polled via GET status.
     /// </summary>
     [HttpPost("install")]
-    public IActionResult StartInstall()
+    public async Task<IActionResult> StartInstall(CancellationToken ct)
     {
         if (!OperatingSystem.IsWindows())
         {
             return Problem(
                 title: "No bundled runtime on this platform.",
                 detail: "On Linux, install the native engine with scripts/runtime/install-linux.sh.",
+                statusCode: StatusCodes.Status409Conflict);
+        }
+
+        if (await _modeStore.GetAsync(ct) == RuntimeMode.DockerDesktop)
+        {
+            return Problem(
+                title: "The container engine is set to Docker Desktop.",
+                detail: "Switch back to the bundled runtime on the Setup screen before installing it.",
                 statusCode: StatusCodes.Status409Conflict);
         }
 
@@ -127,3 +174,6 @@ public sealed class RuntimeController : ControllerBase
         return Ok(new { applied, shutdownRequired });
     }
 }
+
+/// <summary>Body of PUT /api/runtime/mode.</summary>
+public sealed record SetRuntimeModeRequest(RuntimeMode Mode);

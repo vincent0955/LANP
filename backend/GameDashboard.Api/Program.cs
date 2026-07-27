@@ -65,6 +65,8 @@ builder.Services.AddCors(options =>
             .AllowCredentials()));
 
 // --- Docker Engine connectivity (docs/docker-migration.md) ---
+// Registered before the client factory, which consults it to pick an endpoint.
+builder.Services.AddSingleton<IRuntimeModeStore, RuntimeModeStore>();
 builder.Services.AddSingleton<IDockerClientFactory, DockerClientFactory>();
 builder.Services.AddScoped<IServerOrchestrator, DockerService>();
 builder.Services.AddSingleton<IContainerSpecBuilder, ContainerSpecBuilder>();

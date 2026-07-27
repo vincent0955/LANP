@@ -2,6 +2,7 @@ import { AlertTriangle, CheckCircle2 } from "lucide-react";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { useSetupStatus } from "@/api/queries";
 import { RuntimeCard } from "./RuntimeCard";
+import { EngineCard } from "./EngineCard";
 import { NetworkCard } from "./NetworkCard";
 
 export function SetupPage() {
@@ -20,6 +21,10 @@ export function SetupPage() {
 
       {/* Self-hides once the runtime is installed and running. */}
       <RuntimeCard />
+
+      {/* Always visible: unlike the cards around it, this is a standing choice
+          rather than a problem to clear. */}
+      <EngineCard />
 
       <NetworkCard />
 

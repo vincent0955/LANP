@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { AlertTriangle, CheckCircle2, Copy, Loader2, XCircle } from "lucide-react";
+import { AlertTriangle, CheckCircle2, Loader2, XCircle } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -11,6 +11,8 @@ import {
   useRuntimeStatus,
 } from "@/api/queries";
 import { toastApiError } from "@/lib/errors";
+import { CopyableCommand } from "@/components/CopyableCommand";
+import { FirewallCommands } from "./FirewallCommands";
 import type { RuntimePhase } from "@/api/types";
 
 const PHASE_LABELS: Partial<Record<RuntimePhase, string>> = {
@@ -37,6 +39,15 @@ export function RuntimeCard() {
   }
 
   const status = runtime.data;
+
+  // The user opted out of the bundled runtime: none of the WSL checks or the
+  // install button apply, and EngineCard owns this mode's messaging (including
+  // "Docker Desktop isn't running"). Windows-only — EngineCard doesn't render
+  // on Linux, so bailing there would leave a missing engine unreported.
+  if (status.mode === "DockerDesktop" && status.platform === "windows") {
+    return null;
+  }
+
   const installing = PHASE_LABELS[status.phase] !== undefined;
   const allGood =
     status.engineReachable && (status.platform !== "windows" || status.mirroredNetworkingConfigured);
@@ -157,18 +168,7 @@ export function RuntimeCard() {
           </div>
         )}
 
-        {status.firewallCommands.length > 0 && (
-          <details className="text-sm">
-            <summary className="cursor-pointer text-muted-foreground">
-              Firewall commands (run once as administrator so players can connect)
-            </summary>
-            <div className="mt-2 space-y-2">
-              {status.firewallCommands.map((command) => (
-                <CopyableCommand key={command} command={command} />
-              ))}
-            </div>
-          </details>
-        )}
+        <FirewallCommands commands={status.firewallCommands} />
       </CardContent>
     </Card>
   );
@@ -185,23 +185,3 @@ function RuntimeCheck({ ok, optional, label }: { ok: boolean; optional?: boolean
   );
 }
 
-function CopyableCommand({ command }: { command: string }) {
-  return (
-    <div className="flex items-start gap-2">
-      <code className="grow overflow-x-auto whitespace-pre rounded bg-muted px-2 py-1.5 font-mono text-xs">
-        {command}
-      </code>
-      <Button
-        variant="ghost"
-        size="icon"
-        className="shrink-0"
-        onClick={() => {
-          void navigator.clipboard.writeText(command);
-          toast.success("Copied.");
-        }}
-      >
-        <Copy className="size-4" />
-      </Button>
-    </div>
-  );
-}

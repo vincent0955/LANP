@@ -85,6 +85,39 @@ fn shutdown_servers_and_runtime() {
   }
 }
 
+/// Kills the bundled backend, if we started one. Idempotent — the handle is
+/// taken out of the state, so a later exit can't double-kill.
+fn kill_sidecar(app: &tauri::AppHandle) {
+  if let Some(sidecar) = app.try_state::<ApiSidecar>() {
+    if let Some(child) = sidecar.0.lock().unwrap().take() {
+      let _ = child.kill();
+    }
+  }
+}
+
+/// Relaunches the whole app after the container-engine setting changes
+/// (Setup screen). A restart is genuinely required rather than merely tidy:
+/// the backend picks its Docker endpoint, decides whether to auto-start the
+/// bundled WSL runtime, and wires up its engine watchers all at boot.
+///
+/// The old engine is torn down first, in the same order as tray Exit: servers
+/// save their worlds, then the runtime VM stops. Leaving them up would strand
+/// containers on an engine the restarted dashboard no longer looks at, still
+/// holding their published ports.
+#[tauri::command]
+async fn restart_for_runtime_change(app: tauri::AppHandle) {
+  // The shutdown is blocking loopback I/O with a 90s worst case (several
+  // worlds saving in parallel); keep it off the async runtime's thread.
+  let _ = tauri::async_runtime::spawn_blocking(shutdown_servers_and_runtime).await;
+
+  // Free port 5000 before the new instance tries to bind it: the fresh
+  // process checks the port and would otherwise assume a dev backend is
+  // running and skip spawning its own.
+  kill_sidecar(&app);
+
+  app.restart();
+}
+
 fn show_main_window(app: &tauri::AppHandle) {
   if let Some(window) = app.get_webview_window("main") {
     let _ = window.show();
@@ -132,6 +165,7 @@ fn setup_tray(app: &tauri::App) -> tauri::Result<()> {
 pub fn run() {
   tauri::Builder::default()
     .plugin(tauri_plugin_shell::init())
+    .invoke_handler(tauri::generate_handler![restart_for_runtime_change])
     .setup(|app| {
       if cfg!(debug_assertions) {
         app.handle().plugin(
@@ -162,11 +196,7 @@ pub fn run() {
     .expect("error while building tauri application")
     .run(|app, event| {
       if let tauri::RunEvent::Exit = event {
-        if let Some(sidecar) = app.try_state::<ApiSidecar>() {
-          if let Some(child) = sidecar.0.lock().unwrap().take() {
-            let _ = child.kill();
-          }
-        }
+        kill_sidecar(app);
       }
     });
 }

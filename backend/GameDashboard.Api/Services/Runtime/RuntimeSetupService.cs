@@ -84,6 +84,7 @@ public sealed class RuntimeSetupService : IRuntimeSetupService
     private readonly IWslRunner _wsl;
     private readonly IDockerClientFactory _clientFactory;
     private readonly IHttpClientFactory _httpClientFactory;
+    private readonly IRuntimeModeStore _modeStore;
     private readonly DashboardOptions _options;
     private readonly ILogger<RuntimeSetupService> _logger;
     private readonly string _wslConfigPath;
@@ -100,9 +101,10 @@ public sealed class RuntimeSetupService : IRuntimeSetupService
         IWslRunner wsl,
         IDockerClientFactory clientFactory,
         IHttpClientFactory httpClientFactory,
+        IRuntimeModeStore modeStore,
         IOptions<DashboardOptions> options,
         ILogger<RuntimeSetupService> logger)
-        : this(wsl, clientFactory, httpClientFactory, options, logger,
+        : this(wsl, clientFactory, httpClientFactory, modeStore, options, logger,
             wslConfigPath: null, bundledEngineProbe: null, engineStartTimeout: null)
     {
     }
@@ -112,6 +114,7 @@ public sealed class RuntimeSetupService : IRuntimeSetupService
         IWslRunner wsl,
         IDockerClientFactory clientFactory,
         IHttpClientFactory httpClientFactory,
+        IRuntimeModeStore modeStore,
         IOptions<DashboardOptions> options,
         ILogger<RuntimeSetupService> logger,
         string? wslConfigPath,
@@ -121,6 +124,7 @@ public sealed class RuntimeSetupService : IRuntimeSetupService
         _wsl = wsl;
         _clientFactory = clientFactory;
         _httpClientFactory = httpClientFactory;
+        _modeStore = modeStore;
         _options = options.Value;
         _logger = logger;
         _wslConfigPath = wslConfigPath ?? Path.Combine(
@@ -142,11 +146,13 @@ public sealed class RuntimeSetupService : IRuntimeSetupService
     {
         var (client, _) = await _clientFactory.TryGetClientAsync(ct);
         var engineReachable = client is not null;
+        var mode = await _modeStore.GetAsync(ct);
 
         if (!OperatingSystem.IsWindows())
         {
             return new RuntimeStatus(
                 Platform: "linux",
+                Mode: mode,
                 WslInstalled: false,
                 DistroImported: false,
                 EngineReachable: engineReachable,
@@ -157,6 +163,27 @@ public sealed class RuntimeSetupService : IRuntimeSetupService
                     ? null
                     : "No Docker engine found. Run scripts/runtime/install-linux.sh to install it.",
                 FirewallCommands: Array.Empty<string>());
+        }
+
+        if (mode == RuntimeMode.DockerDesktop)
+        {
+            // Nothing here is ours: no WSL query (the user may not even have it),
+            // no install phase, and mirrored networking is Docker Desktop's own
+            // setting to manage. Firewall rules still apply — those are about the
+            // host's ports, whoever publishes them.
+            return new RuntimeStatus(
+                Platform: "windows",
+                Mode: mode,
+                WslInstalled: false,
+                DistroImported: false,
+                EngineReachable: engineReachable,
+                MirroredNetworkingConfigured: false,
+                Phase: RuntimePhase.Idle,
+                DownloadPercent: null,
+                Error: engineReachable
+                    ? null
+                    : "Docker Desktop isn't running. Start it, or switch back to the bundled runtime below.",
+                FirewallCommands: FirewallCommands());
         }
 
         var wslInstalled = await IsWslInstalledAsync(ct);
@@ -175,6 +202,7 @@ public sealed class RuntimeSetupService : IRuntimeSetupService
 
         return new RuntimeStatus(
             Platform: "windows",
+            Mode: mode,
             WslInstalled: wslInstalled,
             DistroImported: distroImported,
             EngineReachable: engineReachable,
@@ -234,6 +262,15 @@ public sealed class RuntimeSetupService : IRuntimeSetupService
             return;
         }
 
+        // The whole point of the Docker Desktop mode: boot the app without
+        // paying for a second VM. Starting our distro here would spin up the
+        // WSL machine the user explicitly opted out of, every launch.
+        if (await _modeStore.GetAsync(ct) == RuntimeMode.DockerDesktop)
+        {
+            _logger.LogInformation("Container engine is Docker Desktop; skipping bundled runtime auto-start.");
+            return;
+        }
+
         // The bundled engine is already up (VM survived from a previous
         // backend run): just make sure a keep-alive session pins it. When the
         // engine that's up is Docker Desktop's instead, this probe fails and
@@ -257,6 +294,14 @@ public sealed class RuntimeSetupService : IRuntimeSetupService
     public async Task StopRuntimeAsync(CancellationToken ct)
     {
         if (!OperatingSystem.IsWindows())
+        {
+            return;
+        }
+
+        // Their engine, their lifecycle: exiting the dashboard must not take
+        // down a Docker Desktop the user runs for everything else on the box.
+        // (The servers themselves were already stopped by the caller.)
+        if (await _modeStore.GetAsync(ct) == RuntimeMode.DockerDesktop)
         {
             return;
         }

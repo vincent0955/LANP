@@ -22,13 +22,22 @@ public sealed class RuntimeSetupServiceTests : IDisposable
 
     private readonly Mock<IWslRunner> _wsl = new();
     private readonly Mock<IDockerClientFactory> _factory = new();
+    private readonly Mock<IRuntimeModeStore> _modeStore = new();
 
     public RuntimeSetupServiceTests()
     {
         Directory.CreateDirectory(_tempDir);
         _factory.Setup(f => f.TryGetClientAsync(It.IsAny<CancellationToken>()))
             .ReturnsAsync(((IDockerClient?)null, "engine unreachable"));
+        // Default across the suite: the bundled runtime is the engine, so the
+        // WSL machinery below is live. Docker Desktop mode is opted into per-test.
+        _modeStore.Setup(m => m.GetAsync(It.IsAny<CancellationToken>()))
+            .ReturnsAsync(RuntimeMode.Bundled);
     }
+
+    private void UseDockerDesktopMode() =>
+        _modeStore.Setup(m => m.GetAsync(It.IsAny<CancellationToken>()))
+            .ReturnsAsync(RuntimeMode.DockerDesktop);
 
     public void Dispose()
     {
@@ -43,6 +52,7 @@ public sealed class RuntimeSetupServiceTests : IDisposable
             _wsl.Object,
             _factory.Object,
             Mock.Of<IHttpClientFactory>(),
+            _modeStore.Object,
             Options.Create(new DashboardOptions()),
             NullLogger<RuntimeSetupService>.Instance,
             wslConfigPath: Path.Combine(_tempDir, ".wslconfig"));
@@ -173,6 +183,7 @@ public sealed class RuntimeSetupServiceTests : IDisposable
             _wsl.Object,
             _factory.Object,
             Mock.Of<IHttpClientFactory>(),
+            _modeStore.Object,
             Options.Create(new DashboardOptions()),
             NullLogger<RuntimeSetupService>.Instance,
             wslConfigPath: Path.Combine(_tempDir, ".wslconfig"),
@@ -224,6 +235,62 @@ public sealed class RuntimeSetupServiceTests : IDisposable
         _wsl.Verify(w => w.StartDetached(It.IsAny<string>()), Times.Never);
         _wsl.Verify(w => w.RunAsync(It.Is<string>(a => a.Contains("start-dockerd")),
             It.IsAny<TimeSpan>(), It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    // --- Docker Desktop mode ---
+    // The point of the mode is that launching the app costs no second VM, so
+    // the bundled machinery must stay completely dormant.
+
+    [Fact]
+    public async Task AutoStart_Skips_The_Bundled_Runtime_Entirely_In_DockerDesktop_Mode()
+    {
+        if (!OperatingSystem.IsWindows()) return;
+        // Everything the Bundled path keys off is true here — the distro IS
+        // imported and the engine is down — so only the mode can hold it back.
+        SetupWsl(installed: true, "gamedashboard");
+        UseDockerDesktopMode();
+        var service = CreateService(bundledEngineUp: false);
+
+        await service.AutoStartAsync(CancellationToken.None);
+
+        _wsl.Verify(w => w.StartDetached(It.IsAny<string>()), Times.Never);
+        _wsl.Verify(w => w.RunAsync(It.IsAny<string>(), It.IsAny<TimeSpan>(), It.IsAny<CancellationToken>()),
+            Times.Never);
+    }
+
+    [Fact]
+    public async Task StopRuntime_Leaves_Docker_Desktop_Running_On_Exit()
+    {
+        if (!OperatingSystem.IsWindows()) return;
+        // Quitting the dashboard must not take down an engine the user runs
+        // for everything else on the machine.
+        _wsl.Setup(w => w.RunAsync(It.IsAny<string>(), It.IsAny<TimeSpan>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new WslResult(0, ""));
+        UseDockerDesktopMode();
+        var service = CreateService(bundledEngineUp: false);
+
+        await service.StopRuntimeAsync(CancellationToken.None);
+
+        _wsl.Verify(w => w.RunAsync(It.Is<string>(a => a.Contains("--terminate")),
+            It.IsAny<TimeSpan>(), It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task Status_In_DockerDesktop_Mode_Reports_The_Engine_Without_Probing_Wsl()
+    {
+        if (!OperatingSystem.IsWindows()) return;
+        UseDockerDesktopMode();
+        var service = CreateService();
+
+        var status = await service.GetStatusAsync(CancellationToken.None);
+
+        Assert.Equal(RuntimeMode.DockerDesktop, status.Mode);
+        Assert.False(status.EngineReachable);
+        // The Setup card must not nag about installing WSL in this mode; the
+        // actionable message is "start Docker Desktop".
+        Assert.Contains("Docker Desktop", status.Error);
+        _wsl.Verify(w => w.RunAsync(It.IsAny<string>(), It.IsAny<TimeSpan>(), It.IsAny<CancellationToken>()),
+            Times.Never);
     }
 
     [Fact]

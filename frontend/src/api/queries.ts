@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "./endpoints";
-import type { BackupSettings, DeployServerRequest } from "./types";
+import type { BackupSettings, DeployServerRequest, RuntimeMode } from "./types";
 
 // Central key factory — the SignalR event bridge patches these same keys, so
 // they must never be constructed ad hoc in components.
@@ -200,6 +200,18 @@ export function useEnableMirroredNetworking() {
   return useMutation({
     mutationFn: () => api.runtimeEnableMirrored(),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: queryKeys.runtime }),
+  });
+}
+
+/**
+ * Switches the container engine. Deliberately does NOT invalidate the runtime
+ * query: the setting is only half-applied until the app restarts (the backend
+ * decides its endpoint and auto-start behaviour at boot), so the caller drives
+ * the restart rather than the UI briefly rendering a mixed state.
+ */
+export function useSetRuntimeMode() {
+  return useMutation({
+    mutationFn: (mode: RuntimeMode) => api.runtimeSetMode(mode),
   });
 }
 

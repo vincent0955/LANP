@@ -13,6 +13,7 @@ import type {
   NetworkInfo,
   RangeReachability,
   RconCommandResponse,
+  RuntimeMode,
   RuntimeStatus,
   ServerDetail,
   ServerReachability,
@@ -114,6 +115,12 @@ export const api = {
     http.post<{ applied: boolean; shutdownRequired: boolean }>(
       "/api/runtime/networking/mirrored",
       {},
+    ),
+  /** Persists the container-engine choice; the app must restart to apply it. */
+  runtimeSetMode: (mode: RuntimeMode) =>
+    http.put<{ mode: RuntimeMode; restartRequired: boolean; runningServers?: number }>(
+      "/api/runtime/mode",
+      { mode },
     ),
 
   metrics: () => http.get<MetricsSnapshot>("/api/metrics"),
